@@ -51,16 +51,16 @@ func (z *Int) Lt(x *Int) bool {
 	if z.neg {
 		if x.neg {
 			return z.abs.Gt(x.abs)
-		} else {
-			return true
 		}
-	} else {
-		if x.neg {
-			return false
-		} else {
-			return z.abs.Lt(x.abs)
-		}
+
+		return true
 	}
+
+	if x.neg {
+		return false
+	}
+
+	return z.abs.Lt(x.abs)
 }
 
 // Gt returns true if z > x
@@ -68,16 +68,16 @@ func (z *Int) Gt(x *Int) bool {
 	if z.neg {
 		if x.neg {
 			return z.abs.Lt(x.abs)
-		} else {
-			return false
 		}
-	} else {
-		if x.neg {
-			return true
-		} else {
-			return z.abs.Gt(x.abs)
-		}
+
+		return false
 	}
+
+	if x.neg {
+		return true
+	}
+
+	return z.abs.Gt(x.abs)
 }
 
 // Clone creates a new Int identical to z
