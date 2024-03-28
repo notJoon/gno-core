@@ -37,6 +37,7 @@ func (z *Int) Sign() int {
 	return 1
 }
 
+// New creates a new Int object.
 func New() *Int {
 	return &Int{
 		abs: new(uint256.Uint),
@@ -73,10 +74,13 @@ func NewInt(x int64) *Int {
 	return New().SetInt64(x)
 }
 
+// FromDecimal converts a given string representation of a decimal number to an Int.
 func FromDecimal(s string) (*Int, error) {
 	return new(Int).SetString(s)
 }
 
+// MustFromDecimal converts a given string representation of a decimal number to an Int.
+// if the string is not a valid decimal number, it panics.
 func MustFromDecimal(s string) *Int {
 	z, err := FromDecimal(s)
 	if err != nil {
@@ -113,19 +117,6 @@ func (z *Int) SetString(s string) (*Int, error) {
 		neg,
 	}, nil
 }
-
-// // setFromScanner implements SetString given an io.ByteScanner.
-// // For documentation see comments of SetString.
-// func (z *Int) setFromScanner(r io.ByteScanner, base int) (*Int, bool) {
-// 	if _, _, err := z.scan(r, base); err != nil {
-// 		return nil, false
-// 	}
-// 	// entire content must have been consumed
-// 	if _, err := r.ReadByte(); err != io.EOF {
-// 		return nil, false
-// 	}
-// 	return z, true // err == io.EOF => scan consumed all content of r
-// }
 
 // FromUint256 is a convenience-constructor from uint256.Uint.
 // Returns a new Int and whether overflow occurred.

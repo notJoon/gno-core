@@ -4,6 +4,7 @@ import (
 	"gno.land/p/demo/uint256"
 )
 
+// Add adds given two Int type numbers and returns the result.
 func (z *Int) Add(x, y *Int) *Int {
 	z.initiateAbs()
 
