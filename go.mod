@@ -92,6 +92,8 @@ require (
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
+	github.com/rivo/uniseg v0.4.3 // indirect
+	github.com/smacker/go-tree-sitter v0.0.0-20240614082054-0ac8d7d185ec // indirect
 	github.com/zondax/golem v0.27.0 // indirect
 	github.com/zondax/ledger-go v1.0.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
