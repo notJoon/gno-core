@@ -32,6 +32,7 @@ require (
 	github.com/rs/cors v1.11.1
 	github.com/rs/xid v1.6.0
 	github.com/sig-0/insertion-queue v0.0.0-20241004125609-6b3ca841346b
+	github.com/smacker/go-tree-sitter v0.0.0-20240614082054-0ac8d7d185ec
 	github.com/stretchr/testify v1.11.1
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/valyala/bytebufferpool v1.0.0
@@ -93,7 +94,6 @@ require (
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/rivo/uniseg v0.4.3 // indirect
-	github.com/smacker/go-tree-sitter v0.0.0-20240614082054-0ac8d7d185ec // indirect
 	github.com/zondax/golem v0.27.0 // indirect
 	github.com/zondax/ledger-go v1.0.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
