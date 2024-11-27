@@ -1,9 +1,5 @@
 package admin
 
-import (
-	"std"
-)
-
 type Logic interface {
 	ReadCounter() uint64
 	UpdateCounter()

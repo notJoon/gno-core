@@ -14,7 +14,7 @@ func Init() {
 
 var _ admin.Logic = &logic{}
 
-type logic struct {}
+type logic struct{}
 
 func (l *logic) ReadCounter() uint64 {
 	return store.GetCounter()

@@ -11,7 +11,6 @@ import (
 	"gno.land/r/x/manfred_upgrade_patterns/upgrade_g/logic/v1"
 	"gno.land/r/x/manfred_upgrade_patterns/upgrade_g/logic/v2"
 	"gno.land/r/x/manfred_upgrade_patterns/upgrade_g/store"
-
 )
 
 func TestPackage(t *testing.T) {

@@ -1,9 +1,6 @@
 package store
 
 import (
-	"std"
-	"fmt"
-
 	"gno.land/r/x/manfred_upgrade_patterns/upgrade_g/admin"
 )
 
@@ -13,7 +10,7 @@ var _ admin.Store = &store{}
 
 var currentStore *store
 
-type store struct {}
+type store struct{}
 
 func (s *store) GetCounter() uint64 {
 	if s != currentStore {
