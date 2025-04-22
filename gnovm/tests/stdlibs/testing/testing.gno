@@ -452,3 +452,13 @@ func tRunner_cur(t *T, fn testingFunc_cur, next realm, verbose bool) {
 	// value without crossing.
 	fn(next, t)
 }
+
+func MarkLine(filename string, line int) {
+	markLine(filename, line)
+}
+
+// markLine marks a line as executed
+func markLine(filename string, line int)
+
+// instrumentCode instruments the code for coverage
+func instrumentCode(code string, filename string) string

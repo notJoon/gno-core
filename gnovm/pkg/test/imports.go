@@ -12,6 +12,7 @@ import (
 
 	gno "github.com/gnolang/gno/gnovm/pkg/gnolang"
 	"github.com/gnolang/gno/gnovm/pkg/packages"
+	"github.com/gnolang/gno/gnovm/pkg/test/coverage"
 	gnostdlibs "github.com/gnolang/gno/gnovm/stdlibs"
 	teststdlibs "github.com/gnolang/gno/gnovm/tests/stdlibs"
 	"github.com/gnolang/gno/tm2/pkg/db/memdb"
@@ -52,6 +53,12 @@ type StoreOptions struct {
 	// version doesn't exist in the testing standard libraries.
 	// This ignores the value of WithExtern.
 	SourceStore gno.Store
+
+	// Coverage enables code coverage instrumentation
+	Coverage bool
+
+	// CoverageTracker is the global coverage tracker to use
+	CoverageTracker *coverage.CoverageTracker
 }
 
 // This store without options supports stdlibs without test/stdlibs overrides.
@@ -212,6 +219,12 @@ func StoreWithOptions(
 			if mpkg.IsEmpty() {
 				panic(fmt.Sprintf("found an empty package %q", pkgPath))
 			}
+
+			// NOTE: Coverage instrumentation should NOT be applied to imported packages.
+			// Only the package being tested should be instrumented, not its dependencies.
+			// Instrumenting imports causes parse errors because the "testing" package
+			// is not available in the regular package context.
+
 			send := std.Coins{}
 			ctx := Context("", pkgPath, send)
 			m2 := gno.NewMachineWithOptions(gno.MachineOptions{
