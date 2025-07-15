@@ -1,148 +1,148 @@
 package coverage
 
 import (
-	"fmt"
+	"sync"
+
+	"github.com/gnolang/gno/gnovm/pkg/gnolang"
 )
 
-// Tracker tracks the coverage data for multiple files.
-// Maintains invariants I1-I4 from the axiom system
+// Tracker implements the gnolang.CoverageTracker interface
+// to track code execution during VM runtime.
 type Tracker struct {
-	data     map[string]map[int]int  // filename -> line number -> execution count (I2: non-negative)
-	allLines map[string]map[int]bool // filename -> line number -> is executable (I1: inclusion relationship)
+	enabled bool
+	mu      sync.RWMutex
+
+	// Package -> File -> Line -> Count
+	coverage map[string]map[string]map[int]int64
+
+	// Set of all executable lines for coverage calculation
+	executableLines map[string]map[string]map[int]bool
 }
 
+// NewTracker creates a new VM coverage tracker.
 func NewTracker() *Tracker {
 	return &Tracker{
-		data:     make(map[string]map[int]int),
-		allLines: make(map[string]map[int]bool),
+		enabled:         false,
+		coverage:        make(map[string]map[string]map[int]int64),
+		executableLines: make(map[string]map[string]map[int]bool),
 	}
 }
 
-// MarkLine satisfies Invariant I2: non-negative execution counts
-func (ct *Tracker) MarkLine(filename string, line int) {
-	if _, ok := ct.data[filename]; !ok {
-		ct.data[filename] = make(map[int]int)
+// TrackExecution records that a line in a file has been executed.
+func (t *Tracker) TrackExecution(pkgPath, fileName string, line int) {
+	if !t.enabled || line <= 0 {
+		return
 	}
-	ct.data[filename][line]++
 
-	// Ensure Invariant I1: executed lines are in allLines
-	ct.RegisterExecutableLine(filename, line)
-}
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
-// RegisterExecutableLine maintains Invariant I1: inclusion relationship
-func (ct *Tracker) RegisterExecutableLine(filename string, line int) {
-	if _, ok := ct.allLines[filename]; !ok {
-		ct.allLines[filename] = make(map[int]bool)
+	if t.coverage[pkgPath] == nil {
+		t.coverage[pkgPath] = make(map[string]map[int]int64)
 	}
-	ct.allLines[filename][line] = true
-}
-
-// ValidateInvariants checks that all coverage invariants hold
-func (ct *Tracker) ValidateInvariants() error {
-	for filename, executedLines := range ct.data {
-		registeredLines, exists := ct.allLines[filename]
-		if !exists {
-			return fmt.Errorf("invariant I1 violated: executed lines exist but no registered lines for file %s", filename)
-		}
-
-		for line, count := range executedLines {
-			// Invariant I2: non-negative counts
-			if count < 0 {
-				return fmt.Errorf("invariant I2 violated: negative execution count %d for line %d in file %s", count, line, filename)
-			}
-
-			// Invariant I1: executed lines must be registered
-			if !registeredLines[line] {
-				return fmt.Errorf("invariant I1 violated: line %d executed but not registered in file %s", line, filename)
-			}
-		}
+	if t.coverage[pkgPath][fileName] == nil {
+		t.coverage[pkgPath][fileName] = make(map[int]int64)
 	}
-	return nil
+
+	t.coverage[pkgPath][fileName][line]++
 }
 
-// GetCoverage returns the coverage data for a specific file
-func (ct *Tracker) GetCoverage(filename string) map[int]int {
-	return ct.data[filename]
+// TrackStatement records statement execution with additional context.
+func (t *Tracker) TrackStatement(stmt gnolang.Stmt) {
+	if !t.enabled || stmt == nil {
+		return
+	}
+
+	// For now, we can't get full location info from statements
+	// The machine should call TrackExecution directly with package/file context
+	// This is a no-op implementation to satisfy the interface
 }
 
-// GetCoverageData returns coverage data ensuring Invariant I3
-func (ct *Tracker) GetCoverageData() map[string]*CoverageData {
-	result := make(map[string]*CoverageData)
+// TrackExpression records expression evaluation.
+func (t *Tracker) TrackExpression(expr gnolang.Expr) {
+	if !t.enabled || expr == nil {
+		return
+	}
 
-	for filename, executableLines := range ct.allLines {
-		totalLines := len(executableLines)
-		coveredLines := 0
-		lineData := make(map[int]int)
+	// For now, we can't get full location info from expressions
+	// The machine should call TrackExecution directly with package/file context
+	// This is a no-op implementation to satisfy the interface
+}
 
-		for line := range executableLines {
-			if executedData, ok := ct.data[filename]; ok {
-				if count, executed := executedData[line]; executed {
-					lineData[line] = count
-					if count > 0 {
-						coveredLines++
-					}
-				} else {
-					lineData[line] = 0
-				}
-			} else {
-				lineData[line] = 0
+// IsEnabled returns whether coverage tracking is currently enabled.
+func (t *Tracker) IsEnabled() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.enabled
+}
+
+// SetEnabled enables or disables coverage tracking.
+func (t *Tracker) SetEnabled(enabled bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.enabled = enabled
+}
+
+// RegisterExecutableLine marks a line as executable for coverage calculation.
+func (t *Tracker) RegisterExecutableLine(pkgPath, fileName string, line int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.executableLines[pkgPath] == nil {
+		t.executableLines[pkgPath] = make(map[string]map[int]bool)
+	}
+	if t.executableLines[pkgPath][fileName] == nil {
+		t.executableLines[pkgPath][fileName] = make(map[int]bool)
+	}
+
+	t.executableLines[pkgPath][fileName][line] = true
+}
+
+// GetCoverageData returns a copy of the current coverage data.
+func (t *Tracker) GetCoverageData() map[string]map[string]map[int]int64 {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	// Deep copy the coverage data
+	result := make(map[string]map[string]map[int]int64)
+	for pkg, files := range t.coverage {
+		result[pkg] = make(map[string]map[int]int64)
+		for file, lines := range files {
+			result[pkg][file] = make(map[int]int64)
+			for line, count := range lines {
+				result[pkg][file][line] = count
 			}
-		}
-
-		// Ensure Invariant I3: coverage ratio in [0, 100]
-		coverageRatio := 0.0
-		if totalLines > 0 {
-			coverageRatio = float64(coveredLines) / float64(totalLines) * 100
-			if coverageRatio < 0 {
-				coverageRatio = 0
-			}
-			if coverageRatio > 100 {
-				coverageRatio = 100
-			}
-		}
-
-		result[filename] = &CoverageData{
-			TotalLines:    totalLines,
-			CoveredLines:  coveredLines,
-			CoverageRatio: coverageRatio,
-			LineData:      lineData,
 		}
 	}
 
 	return result
 }
 
-// Reset resets the coverage data while maintaining invariants
-func (ct *Tracker) Reset() {
-	ct.data = make(map[string]map[int]int)
-	ct.allLines = make(map[string]map[int]bool)
+// GetExecutableLines returns a copy of the executable lines data.
+func (t *Tracker) GetExecutableLines() map[string]map[string]map[int]bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	// Deep copy the executable lines data
+	result := make(map[string]map[string]map[int]bool)
+	for pkg, files := range t.executableLines {
+		result[pkg] = make(map[string]map[int]bool)
+		for file, lines := range files {
+			result[pkg][file] = make(map[int]bool)
+			for line := range lines {
+				result[pkg][file][line] = true
+			}
+		}
+	}
+
+	return result
 }
 
-// PrintCoverage prints the coverage data to stdout
-func (ct *Tracker) PrintCoverage() {
-	coverageData := ct.GetCoverageData()
+// Clear resets all coverage data.
+func (t *Tracker) Clear() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
-	var totalLines, totalCovered int
-	for _, data := range coverageData {
-		totalLines += data.TotalLines
-		totalCovered += data.CoveredLines
-	}
-
-	overallCoverage := 0.0
-	if totalLines > 0 {
-		overallCoverage = float64(totalCovered) / float64(totalLines) * 100
-	}
-
-	fmt.Printf("\nCoverage Report:\n")
-	fmt.Printf("Total Lines: %d\n", totalLines)
-	fmt.Printf("Covered Lines: %d\n", totalCovered)
-	fmt.Printf("Overall Coverage: %.2f%%\n\n", overallCoverage)
-
-	for filename, data := range coverageData {
-		fmt.Printf("File: %s\n", filename)
-		fmt.Printf("  Total Lines: %d\n", data.TotalLines)
-		fmt.Printf("  Covered Lines: %d\n", data.CoveredLines)
-		fmt.Printf("  Coverage: %.2f%%\n", data.CoverageRatio)
-		fmt.Println()
-	}
+	t.coverage = make(map[string]map[string]map[int]int64)
+	// Note: we keep executable lines as they don't change
 }

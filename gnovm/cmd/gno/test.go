@@ -18,7 +18,7 @@ import (
 	"github.com/gnolang/gno/gnovm/pkg/gnomod"
 	"github.com/gnolang/gno/gnovm/pkg/packages"
 	"github.com/gnolang/gno/gnovm/pkg/test"
-	"github.com/gnolang/gno/gnovm/pkg/test/coverage"
+	vmcoverage "github.com/gnolang/gno/gnovm/pkg/test/coverage"
 	"github.com/gnolang/gno/tm2/pkg/commands"
 )
 
@@ -258,6 +258,16 @@ func execTest(cmd *testCmd, args []string, io commands.IO) error {
 	opts.CoverageOutput = cmd.coverageOutput
 	cache := make(gno.TypeCheckCache, 64)
 
+	// If coverage is enabled, recreate the test store with coverage options
+	if cmd.coverage {
+		storeOpts := test.StoreOptions{
+			WithExamples: true,
+			Testing:      true,
+			Coverage:     true,
+		}
+		opts.BaseStore, opts.TestStore = test.StoreWithOptions(cmd.rootDir, opts.WriterForStore(), storeOpts)
+	}
+
 	// test.ProdStore() is suitable for type-checking prod (non-test) files.
 	// _, pgs := test.ProdStore(cmd.rootDir, opts.WriterForStore())
 
@@ -336,6 +346,10 @@ func execTest(cmd *testCmd, args []string, io commands.IO) error {
 		startedAt := time.Now()
 		didPanic = catchPanic(pkg.Dir, pkgPath, io.Err(), func() {
 			if mod == nil || !mod.Ignore {
+				// Update opts with proper test store for coverage
+				if cmd.coverage {
+					opts.TestPackagePath = mpkg.Path
+				}
 				_, errs := lintTypeCheck(io, pkg.Dir, mpkg, gno.TypeCheckOptions{
 					Getter:     opts.TestStore,
 					TestGetter: opts.TestStore,
@@ -381,13 +395,25 @@ func execTest(cmd *testCmd, args []string, io commands.IO) error {
 
 	// print coverage results
 	if cmd.coverage {
-		coverageTracker := test.GetCoverageTracker()
-		coverageTracker.PrintCoverage()
+		// VM coverage will be printed by test.Test() when coverageOutput is set
+		if cmd.coverageOutput != "" && cmd.verbose {
+			io.ErrPrintfln("Coverage report written to: %s", cmd.coverageOutput)
+		}
 
-		// Show coverage visualization if requested
+		// Show coverage visualization for specific files
 		if cmd.show != "" {
-			if err := coverage.ShowCoverage(coverageTracker, cmd.show, cmd.rootDir); err != nil {
-				io.ErrPrintfln("Warning: failed to show coverage visualization: %v", err)
+			// Get the coverage tracker from test options
+			if opts.CoverageTracker != nil {
+				if tracker, ok := opts.CoverageTracker.(*vmcoverage.Tracker); ok {
+					err := tracker.ShowFileCoverage(cmd.rootDir, cmd.show, io.Err())
+					if err != nil {
+						io.ErrPrintfln("Error showing coverage: %v", err)
+					}
+				} else {
+					io.ErrPrintfln("Coverage tracker is not a VM tracker")
+				}
+			} else {
+				io.ErrPrintfln("No coverage data available - did you run with -cover flag?")
 			}
 		}
 	}

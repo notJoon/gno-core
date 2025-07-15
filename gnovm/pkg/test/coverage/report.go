@@ -1,90 +1,124 @@
 package coverage
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"sort"
+	"strings"
 )
 
-// CoverageReport define the structure of the coverage report
-type CoverageReport struct {
-	Files map[string]FileCoverage `json:"files"`
-}
-
-// FileCoverage define the structure of the file coverage
+// FileCoverage represents coverage data for a single file.
 type FileCoverage struct {
-	Lines    map[int]int `json:"lines"`
-	Total    int         `json:"total"`
-	Covered  int         `json:"covered"`
-	Coverage float64     `json:"coverage"`
+	Package         string
+	FileName        string
+	ExecutableLines []int
+	ExecutedLines   map[int]int64
+	TotalLines      int
+	CoveredLines    int
+	Coverage        float64
 }
 
-// GenerateReport generate the coverage report
-func GenerateReport(tracker *Tracker, outputFile string) error {
-	report := CoverageReport{
-		Files: make(map[string]FileCoverage),
-	}
-
-	// Use GetCoverageData to get consistent coverage calculations
-	coverageData := tracker.GetCoverageData()
-
-	for filename, data := range coverageData {
-		fileCoverage := FileCoverage{
-			Lines:    data.LineData,
-			Total:    data.TotalLines,
-			Covered:  data.CoveredLines,
-			Coverage: data.CoverageRatio,
-		}
-		report.Files[filename] = fileCoverage
-	}
-
-	// convert the report to JSON
-	jsonData, err := json.MarshalIndent(report, "", "  ")
-	if err != nil {
-		return fmt.Errorf("JSON conversion failed: %w", err)
-	}
-
-	// if the output file is specified, save it to a file
-	if outputFile != "" {
-		if err := os.WriteFile(outputFile, jsonData, 0o644); err != nil {
-			return fmt.Errorf("failed to save file: %w", err)
-		}
-	}
-
-	return nil
+// Report represents a complete coverage report.
+type Report struct {
+	Files        []*FileCoverage
+	TotalLines   int
+	CoveredLines int
+	Coverage     float64
 }
 
-// Print print the coverage report in a human-readable format
-func Print(tracker *Tracker, w io.Writer) error {
-	// sort the filenames
-	filenames := make([]string, 0, len(tracker.data))
-	for filename := range tracker.data {
-		filenames = append(filenames, filename)
-	}
-	sort.Strings(filenames)
+// GenerateReport creates a coverage report from the tracker data.
+func (t *Tracker) GenerateReport() *Report {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 
-	// print the coverage information for each file
-	for _, filename := range filenames {
-		lines := tracker.data[filename]
-		total := len(lines)
-		covered := 0
-		for _, count := range lines {
-			if count > 0 {
-				covered++
+	report := &Report{
+		Files: make([]*FileCoverage, 0),
+	}
+
+	// Process each package and file
+	for pkgPath, pkgFiles := range t.executableLines {
+		for fileName, execLines := range pkgFiles {
+			fc := &FileCoverage{
+				Package:         pkgPath,
+				FileName:        fileName,
+				ExecutableLines: make([]int, 0, len(execLines)),
+				ExecutedLines:   make(map[int]int64),
 			}
-		}
 
-		coverage := float64(covered) / float64(total) * 100
-		fmt.Fprintf(w, "%s: %.1f%% (%d/%d)\n",
-			filepath.Base(filename),
-			coverage,
-			covered,
-			total,
-		)
+			// Collect executable lines
+			for line := range execLines {
+				fc.ExecutableLines = append(fc.ExecutableLines, line)
+			}
+			sort.Ints(fc.ExecutableLines)
+			fc.TotalLines = len(fc.ExecutableLines)
+
+			// Collect executed lines
+			if covData, ok := t.coverage[pkgPath]; ok {
+				if fileCov, ok := covData[fileName]; ok {
+					for line, count := range fileCov {
+						if execLines[line] { // Only count if line is executable
+							fc.ExecutedLines[line] = count
+							fc.CoveredLines++
+						}
+					}
+				}
+			}
+
+			// Calculate coverage percentage
+			if fc.TotalLines > 0 {
+				fc.Coverage = float64(fc.CoveredLines) / float64(fc.TotalLines) * 100
+			}
+
+			report.Files = append(report.Files, fc)
+			report.TotalLines += fc.TotalLines
+			report.CoveredLines += fc.CoveredLines
+		}
 	}
 
-	return nil
+	// Sort files by package and name
+	sort.Slice(report.Files, func(i, j int) bool {
+		if report.Files[i].Package != report.Files[j].Package {
+			return report.Files[i].Package < report.Files[j].Package
+		}
+		return report.Files[i].FileName < report.Files[j].FileName
+	})
+
+	// Calculate overall coverage
+	if report.TotalLines > 0 {
+		report.Coverage = float64(report.CoveredLines) / float64(report.TotalLines) * 100
+	}
+
+	return report
+}
+
+// String returns a text representation of the coverage report.
+func (r *Report) String() string {
+	var sb strings.Builder
+
+	sb.WriteString("Coverage Report\n")
+	sb.WriteString("===============\n\n")
+
+	for _, file := range r.Files {
+		sb.WriteString(fmt.Sprintf("%s/%s: %.1f%% (%d/%d lines)\n",
+			file.Package, file.FileName, file.Coverage,
+			file.CoveredLines, file.TotalLines))
+	}
+
+	sb.WriteString("\n")
+	sb.WriteString(fmt.Sprintf("Total Coverage: %.1f%% (%d/%d lines)\n",
+		r.Coverage, r.CoveredLines, r.TotalLines))
+
+	return sb.String()
+}
+
+// GetUncoveredLines returns lines that were not executed for a specific file.
+func (fc *FileCoverage) GetUncoveredLines() []int {
+	uncovered := make([]int, 0)
+
+	for _, line := range fc.ExecutableLines {
+		if _, executed := fc.ExecutedLines[line]; !executed {
+			uncovered = append(uncovered, line)
+		}
+	}
+
+	return uncovered
 }

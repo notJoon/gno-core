@@ -3,122 +3,103 @@ package coverage
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
+	"sort"
 )
 
-// ANSI color codes for terminal output
+// ANSI color codes
 const (
 	ColorReset = "\033[0m"
-	ColorRed   = "\033[31m"
 	ColorGreen = "\033[32m"
+	ColorRed   = "\033[31m"
+	ColorGray  = "\033[90m"
 	ColorWhite = "\033[37m"
 	ColorBold  = "\033[1m"
 )
 
-// Check if terminal supports colors
-var supportsColor = true
+// ShowFileCoverage displays coverage visualization for a specific file
+func (t *Tracker) ShowFileCoverage(rootDir, pattern string, w io.Writer) error {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 
-func init() {
-	// Check if NO_COLOR environment variable is set
-	if os.Getenv("NO_COLOR") != "" {
-		supportsColor = false
-		return
-	}
+	// Find files matching the pattern
+	var matchedFiles []*FileCoverage
+	report := t.GenerateReport()
 
-	// Check if TERM environment variable indicates color support
-	term := os.Getenv("TERM")
-	if term == "" || term == "dumb" {
-		supportsColor = false
-	}
-}
-
-// ShowCoverage displays coverage visualization for files matching the pattern
-func ShowCoverage(tracker *Tracker, pattern string, rootDir string) error {
-	coverageData := tracker.GetCoverageData()
-
-	// Convert glob pattern to regex
-	regexPattern := globToRegex(pattern)
-	regex, err := regexp.Compile(regexPattern)
-	if err != nil {
-		return fmt.Errorf("invalid pattern: %w", err)
-	}
-
-	found := false
-	for filename, data := range coverageData {
-		// Check if filename matches the pattern
-		if !regex.MatchString(filepath.Base(filename)) {
-			continue
-		}
-
-		found = true
-		if err := visualizeFile(filename, data, rootDir); err != nil {
-			return fmt.Errorf("failed to visualize %s: %w", filename, err)
+	for _, fc := range report.Files {
+		fileName := fc.FileName
+		if matched, _ := filepath.Match(pattern, fileName); matched {
+			matchedFiles = append(matchedFiles, fc)
+		} else if matched, _ := filepath.Match(pattern, filepath.Base(fileName)); matched {
+			matchedFiles = append(matchedFiles, fc)
 		}
 	}
 
-	if !found {
-		return fmt.Errorf("no files found matching pattern: %s", pattern)
+	if len(matchedFiles) == 0 {
+		return fmt.Errorf("no files matching pattern: %s", pattern)
+	}
+
+	// Show coverage for each matched file
+	for _, fc := range matchedFiles {
+		if err := t.showSingleFileCoverage(rootDir, fc, w); err != nil {
+			return err
+		}
+		fmt.Fprintln(w) // Add spacing between files
 	}
 
 	return nil
 }
 
-// visualizeFile displays coverage visualization for a single file
-func visualizeFile(filename string, data *CoverageData, rootDir string) error {
-	// Try to find the actual file on disk
-	filePath := findFileOnDisk(filename, rootDir)
+// showSingleFileCoverage displays coverage for a single file
+func (t *Tracker) showSingleFileCoverage(rootDir string, fc *FileCoverage, w io.Writer) error {
+	// Try to find the file
+	filePath := findSourceFile(rootDir, fc.Package, fc.FileName)
 	if filePath == "" {
-		return fmt.Errorf("could not find file on disk: %s", filename)
+		return fmt.Errorf("cannot find source file: %s/%s", fc.Package, fc.FileName)
 	}
 
+	// Read the file
 	file, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
+		return fmt.Errorf("cannot open file %s: %w", filePath, err)
 	}
 	defer file.Close()
 
-	fmt.Printf("\n%sCoverage visualization for: %s%s\n", ColorBold, filename, ColorReset)
-	fmt.Printf("Total Lines: %d, Covered: %d, Coverage: %.2f%%\n",
-		data.TotalLines, data.CoveredLines, data.CoverageRatio)
+	// Print header
+	fmt.Fprintf(w, "%s%s=== %s/%s ===%s\n", ColorBold, ColorWhite, fc.Package, fc.FileName, ColorReset)
+	fmt.Fprintf(w, "%sCoverage: %.1f%% (%d/%d lines)%s\n\n", ColorWhite, fc.Coverage, fc.CoveredLines, fc.TotalLines, ColorReset)
 
-	if supportsColor {
-		fmt.Printf("Legend: %sGreen%s = executed, %sRed%s = executable but not executed, %sWhite%s = non-executable or non-instrumented\n\n",
-			ColorGreen, ColorReset, ColorRed, ColorReset, ColorWhite, ColorReset)
-	} else {
-		fmt.Printf("Legend: ✓ = executed, ✗ = executable but not executed, space = non-executable or non-instrumented\n\n")
+	// Create a map for quick lookup of executable and executed lines
+	executableMap := make(map[int]bool)
+	for _, line := range fc.ExecutableLines {
+		executableMap[line] = true
 	}
 
+	// Read and display file with coverage highlighting
 	scanner := bufio.NewScanner(file)
 	lineNum := 1
-	uncoveredCount := 0
-
 	for scanner.Scan() {
-		line := scanner.Text()
-		color := getLineColor(lineNum, data)
-		indicator := getLineIndicator(lineNum, data)
+		lineText := scanner.Text()
 
-		// Count uncovered executable lines
-		if indicator == "✗" {
-			uncoveredCount++
-		}
-
-		// Format line number with padding
-		lineNumStr := fmt.Sprintf("%4d", lineNum)
-
-		if supportsColor {
-			// Print line with color coding
-			fmt.Printf("%s%s%s %s%s%s\n",
-				ColorBold, lineNumStr, ColorReset,
-				color, line, ColorReset)
+		// Determine line color
+		var lineColor string
+		if !executableMap[lineNum] {
+			// Non-executable line (comments, blank lines, etc.)
+			lineColor = ColorGray
+		} else if _, executed := fc.ExecutedLines[lineNum]; executed {
+			// Executed line
+			lineColor = ColorGreen
 		} else {
-			// Print line with text indicator
-			fmt.Printf("%s%s%s %s %s\n",
-				ColorBold, lineNumStr, ColorReset,
-				indicator, line)
+			// Executable but not executed
+			lineColor = ColorRed
 		}
+
+		// Print line with color
+		fmt.Fprintf(w, "%s%4d%s %s%s%s\n",
+			ColorWhite, lineNum, ColorReset,
+			lineColor, lineText, ColorReset)
 
 		lineNum++
 	}
@@ -127,119 +108,70 @@ func visualizeFile(filename string, data *CoverageData, rootDir string) error {
 		return fmt.Errorf("error reading file: %w", err)
 	}
 
-	if uncoveredCount > 0 {
-		if supportsColor {
-			fmt.Printf("\n%sUncovered executable lines: %d%s\n", ColorRed, uncoveredCount, ColorReset)
-		} else {
-			fmt.Printf("\nUncovered executable lines: %d\n", uncoveredCount)
+	// Print uncovered lines summary
+	uncovered := fc.GetUncoveredLines()
+	if len(uncovered) > 0 {
+		fmt.Fprintf(w, "\n%sUncovered lines:%s", ColorRed, ColorReset)
+		for i, line := range uncovered {
+			if i%10 == 0 {
+				fmt.Fprintf(w, "\n  ")
+			}
+			fmt.Fprintf(w, "%d ", line)
 		}
+		fmt.Fprintln(w)
 	}
 
 	return nil
 }
 
-// getLineColor returns the appropriate color for a line based on coverage
-func getLineColor(lineNum int, data *CoverageData) string {
-	if !supportsColor {
-		// Return empty string if colors are not supported
-		return ""
+// findSourceFile attempts to locate the source file in the filesystem
+func findSourceFile(rootDir, pkgPath, fileName string) string {
+	// Try different possible locations
+	candidates := []string{
+		// Direct path
+		filepath.Join(pkgPath, fileName),
+		// Under examples
+		filepath.Join(rootDir, "examples", pkgPath, fileName),
+		// Under gnovm/stdlibs
+		filepath.Join(rootDir, "gnovm", "stdlibs", pkgPath, fileName),
+		// Just the package path from root
+		filepath.Join(rootDir, pkgPath, fileName),
 	}
 
-	if data == nil {
-		return ColorWhite
-	}
-
-	if count, exists := data.LineData[lineNum]; exists {
-		if count > 0 {
-			return ColorGreen // Executed line - green
-		} else {
-			return ColorRed // Executable but not executed - red
-		}
-	}
-	return ColorWhite // Non-instrumented or non-executable line - white
-}
-
-// getLineIndicator returns a text indicator for line coverage when colors are not supported
-func getLineIndicator(lineNum int, data *CoverageData) string {
-	if count, exists := data.LineData[lineNum]; exists {
-		if count > 0 {
-			return "✓" // Executed line
-		} else {
-			return "✗" // Executable but not executed
-		}
-	}
-	return " " // Non-instrumented or non-executable line
-}
-
-// globToRegex converts a glob pattern to a regex pattern
-func globToRegex(pattern string) string {
-	// Escape special regex characters
-	pattern = regexp.QuoteMeta(pattern)
-
-	// Convert glob wildcards to regex
-	pattern = strings.ReplaceAll(pattern, "\\*", ".*")
-	pattern = strings.ReplaceAll(pattern, "\\?", ".")
-
-	return "^" + pattern + "$"
-}
-
-// findFileOnDisk attempts to find the actual file on disk
-func findFileOnDisk(filename string, rootDir string) string {
-	// If filename contains path separators, try to resolve it
-	if strings.Contains(filename, "/") {
-		// Remove the package path prefix to get just the filename
-		parts := strings.Split(filename, "/")
-		justFilename := parts[len(parts)-1]
-
-		// Try to find the file in examples directory first
-		examplesPath := filepath.Join(rootDir, "examples", filename)
-		if _, err := os.Stat(examplesPath); err == nil {
-			return examplesPath
-		}
-
-		// Search recursively in the examples directory
-		if found := findFileRecursively(filepath.Join(rootDir, "examples"), justFilename); found != "" {
-			return found
-		}
-	}
-
-	// Try different possible paths
-	possiblePaths := []string{
-		filepath.Join(rootDir, filename),
-		filepath.Join(rootDir, "examples", filename),
-		filepath.Join(rootDir, "gnovm", "stdlibs", filename),
-		filepath.Join(rootDir, "gnovm", "tests", "stdlibs", filename),
-	}
-
-	for _, path := range possiblePaths {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-
-	// Search recursively in the root directory
-	return findFileRecursively(rootDir, filepath.Base(filename))
-}
-
-// findFileRecursively searches for a file recursively in a directory
-func findFileRecursively(dir, filename string) string {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
-
-	for _, entry := range entries {
-		path := filepath.Join(dir, entry.Name())
-
-		if entry.IsDir() {
-			// Recursively search subdirectories
-			if found := findFileRecursively(path, filename); found != "" {
-				return found
-			}
-		} else if entry.Name() == filename {
-			return path
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
 		}
 	}
 
 	return ""
+}
+
+// GetFilesMatchingPattern returns all files matching the given pattern
+func (t *Tracker) GetFilesMatchingPattern(pattern string) []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	var files []string
+	seen := make(map[string]bool)
+
+	for pkg, pkgFiles := range t.executableLines {
+		for fileName := range pkgFiles {
+			fullName := fmt.Sprintf("%s/%s", pkg, fileName)
+			if seen[fullName] {
+				continue
+			}
+
+			if matched, _ := filepath.Match(pattern, fileName); matched {
+				files = append(files, fullName)
+				seen[fullName] = true
+			} else if matched, _ := filepath.Match(pattern, filepath.Base(fileName)); matched {
+				files = append(files, fullName)
+				seen[fullName] = true
+			}
+		}
+	}
+
+	sort.Strings(files)
+	return files
 }
