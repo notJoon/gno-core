@@ -253,6 +253,11 @@ func StoreWithOptions(
 			// if examples package...
 			examplePath := filepath.Join(rootDir, "examples", pkgPath)
 			if osm.DirExists(examplePath) {
+				// Skip loading if this is the package being tested with coverage
+				if opts.Coverage && pkgPath == opts.TestedPackagePath {
+					return nil, nil
+				}
+
 				return loadFromDir(examplePath)
 			}
 		}
