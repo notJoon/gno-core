@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/upgrade/gov_governance_upgrade_filetest.gno

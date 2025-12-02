@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/gov/governance/v1/getter_proposal_test.gno

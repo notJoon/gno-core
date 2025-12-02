@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/test/fuzz/collect_reward_test.gno

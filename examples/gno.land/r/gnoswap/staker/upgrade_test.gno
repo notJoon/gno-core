@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/staker/upgrade_test.gno

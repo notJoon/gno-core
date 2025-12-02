@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/router/router_swap_route_1route_2hop_wrapped_native_in_out_filetest.gno

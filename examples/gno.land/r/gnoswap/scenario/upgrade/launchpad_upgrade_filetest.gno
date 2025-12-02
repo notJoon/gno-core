@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/upgrade/launchpad_upgrade_filetest.gno

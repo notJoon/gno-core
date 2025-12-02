@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/staker/mint_and_staker_position_filetest.gno

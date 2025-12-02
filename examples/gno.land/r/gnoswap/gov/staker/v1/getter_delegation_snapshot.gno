@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/gov/staker/v1/getter_delegation_snapshot.gno

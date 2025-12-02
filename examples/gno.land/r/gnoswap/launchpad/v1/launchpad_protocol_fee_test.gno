@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/launchpad/v1/launchpad_protocol_fee_test.gno

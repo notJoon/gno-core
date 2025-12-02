@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/metrics/mint_filetest.gno

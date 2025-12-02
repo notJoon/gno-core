@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/staker/staker_external_native_coin_filetest.gno

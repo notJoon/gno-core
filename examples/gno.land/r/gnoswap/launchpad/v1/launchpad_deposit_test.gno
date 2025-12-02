@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/launchpad/v1/launchpad_deposit_test.gno

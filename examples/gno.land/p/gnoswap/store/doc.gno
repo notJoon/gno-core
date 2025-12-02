@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/p/gnoswap/store/doc.gno

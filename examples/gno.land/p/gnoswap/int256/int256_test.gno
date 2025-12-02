@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/p/gnoswap/int256/int256_test.gno

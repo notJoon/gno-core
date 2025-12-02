@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/upgrade/staker_rollback_filetest.gno

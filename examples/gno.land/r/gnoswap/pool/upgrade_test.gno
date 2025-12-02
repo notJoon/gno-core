@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/pool/upgrade_test.gno

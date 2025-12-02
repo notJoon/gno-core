@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/router/router_spec_#4_ExactIn_filetest.gno

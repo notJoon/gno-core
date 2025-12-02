@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/gov/governance/voting_info.gno

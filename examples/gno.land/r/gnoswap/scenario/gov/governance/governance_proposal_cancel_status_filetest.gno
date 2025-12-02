@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/gov/governance/governance_proposal_cancel_status_filetest.gno

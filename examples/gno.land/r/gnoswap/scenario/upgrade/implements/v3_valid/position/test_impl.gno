@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/upgrade/implements/v3_valid/position/test_impl.gno

@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/router/basic_wrap_unwrap_operations_filetest.gno

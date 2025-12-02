@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/staker/single_gns_external_ends_filetest.gno

@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/launchpad/v1/tier_allocation_test.gno

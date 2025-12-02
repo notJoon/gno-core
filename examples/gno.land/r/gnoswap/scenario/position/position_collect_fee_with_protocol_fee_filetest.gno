@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/position/position_collect_fee_with_protocol_fee_filetest.gno

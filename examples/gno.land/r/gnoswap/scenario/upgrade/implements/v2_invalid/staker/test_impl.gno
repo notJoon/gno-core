@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/upgrade/implements/v2_invalid/staker/test_impl.gno

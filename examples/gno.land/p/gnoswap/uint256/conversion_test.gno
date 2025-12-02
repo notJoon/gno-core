@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/p/gnoswap/uint256/conversion_test.gno

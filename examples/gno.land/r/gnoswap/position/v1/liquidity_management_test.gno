@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/position/v1/liquidity_management_test.gno

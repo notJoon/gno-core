@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/common/grc20reg_helper_test.gno

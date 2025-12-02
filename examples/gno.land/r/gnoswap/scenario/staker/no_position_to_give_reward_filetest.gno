@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/staker/no_position_to_give_reward_filetest.gno

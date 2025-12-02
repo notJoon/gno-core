@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/pool/burn3_filetest.gno

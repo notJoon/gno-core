@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/staker/short_warmup_internal_gnot_gns_3000_filetest.gno

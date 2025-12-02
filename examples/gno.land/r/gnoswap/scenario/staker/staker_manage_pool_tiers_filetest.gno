@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/staker/staker_manage_pool_tiers_filetest.gno

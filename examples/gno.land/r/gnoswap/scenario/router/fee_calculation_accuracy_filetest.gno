@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/router/fee_calculation_accuracy_filetest.gno

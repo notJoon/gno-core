@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/p/gnoswap/fuzz/combinators_test.gno

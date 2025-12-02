@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/upgrade/implements/security/register_duplicated_version/duplicated_package.gno

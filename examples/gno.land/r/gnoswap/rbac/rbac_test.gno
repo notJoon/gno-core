@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/rbac/rbac_test.gno

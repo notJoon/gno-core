@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/test_token/qux/qux.gno

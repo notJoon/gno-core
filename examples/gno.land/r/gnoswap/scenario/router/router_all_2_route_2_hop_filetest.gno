@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/router/router_all_2_route_2_hop_filetest.gno

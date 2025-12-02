@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/emission/security_test.gno

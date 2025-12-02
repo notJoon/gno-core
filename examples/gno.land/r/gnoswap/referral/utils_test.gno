@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/referral/utils_test.gno

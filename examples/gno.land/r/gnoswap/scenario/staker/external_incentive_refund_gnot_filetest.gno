@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/staker/external_incentive_refund_gnot_filetest.gno

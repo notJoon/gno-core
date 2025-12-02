@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/tests/integration/bless/report_test.go

@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/upgrade/pool_rollback_with_validate_data_filetest.gno

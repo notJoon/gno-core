@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/referral/rate_limit_test.gno

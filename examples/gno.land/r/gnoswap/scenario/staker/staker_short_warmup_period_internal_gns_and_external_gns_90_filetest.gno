@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/staker/staker_short_warmup_period_internal_gns_and_external_gns_90_filetest.gno

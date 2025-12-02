@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/gns/mint_gns_by_skipping_blocks_filetest.gno

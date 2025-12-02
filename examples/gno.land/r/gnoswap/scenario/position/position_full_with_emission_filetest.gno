@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/position/position_full_with_emission_filetest.gno

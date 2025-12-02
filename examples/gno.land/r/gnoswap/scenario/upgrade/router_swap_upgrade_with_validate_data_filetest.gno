@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/upgrade/router_swap_upgrade_with_validate_data_filetest.gno

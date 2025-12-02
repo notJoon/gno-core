@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/gns/mint_gns_during_all_halving_years_filetest.gno

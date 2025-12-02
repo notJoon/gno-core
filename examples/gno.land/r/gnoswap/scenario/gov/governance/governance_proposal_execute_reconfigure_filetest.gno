@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/gov/governance/governance_proposal_execute_reconfigure_filetest.gno

@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/position/position_unclaimed_fee_filetest.gno

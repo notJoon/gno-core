@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/launchpad/launchpad_create_project_by_invalid_condition_token_filetest.gno

@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/rbac/rbac_common_usage_filetest.gno

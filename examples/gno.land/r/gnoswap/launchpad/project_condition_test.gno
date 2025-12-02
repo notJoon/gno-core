@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/launchpad/project_condition_test.gno

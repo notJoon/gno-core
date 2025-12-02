@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/pool/v1/pool_test.gno

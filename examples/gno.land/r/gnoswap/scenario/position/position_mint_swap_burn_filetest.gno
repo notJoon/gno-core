@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/position/position_mint_swap_burn_filetest.gno

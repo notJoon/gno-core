@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/router/_mock_test.gno

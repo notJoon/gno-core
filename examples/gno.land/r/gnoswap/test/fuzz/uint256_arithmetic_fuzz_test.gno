@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/test/fuzz/uint256_arithmetic_fuzz_test.gno

@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/launchpad/_mock_test.gno

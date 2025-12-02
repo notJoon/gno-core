@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/gns/distribution_start_block_height_filetest.gno

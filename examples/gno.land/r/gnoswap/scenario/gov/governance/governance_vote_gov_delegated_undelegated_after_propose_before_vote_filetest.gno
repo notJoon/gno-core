@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/gov/governance/governance_vote_gov_delegated_undelegated_after_propose_before_vote_filetest.gno

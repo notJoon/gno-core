@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/staker/v1/mint_stake.gno

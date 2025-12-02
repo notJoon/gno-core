@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/p/gnoswap/version_manager/version_manager.gno

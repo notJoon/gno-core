@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/pool/single_lp_filetest.gno

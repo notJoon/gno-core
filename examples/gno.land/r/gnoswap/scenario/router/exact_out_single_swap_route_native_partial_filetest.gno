@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/router/exact_out_single_swap_route_native_partial_filetest.gno

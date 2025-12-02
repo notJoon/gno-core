@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/test/fuzz/int256_bitwise_fuzz_test.gno

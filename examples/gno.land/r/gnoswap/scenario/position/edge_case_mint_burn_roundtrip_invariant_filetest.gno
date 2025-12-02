@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/position/edge_case_mint_burn_roundtrip_invariant_filetest.gno

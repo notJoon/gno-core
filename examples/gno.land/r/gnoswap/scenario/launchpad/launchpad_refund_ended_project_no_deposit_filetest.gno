@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/launchpad/launchpad_refund_ended_project_no_deposit_filetest.gno

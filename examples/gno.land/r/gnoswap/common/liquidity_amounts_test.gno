@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/common/liquidity_amounts_test.gno

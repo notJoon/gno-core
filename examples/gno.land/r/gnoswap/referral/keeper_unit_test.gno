@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/referral/keeper_unit_test.gno

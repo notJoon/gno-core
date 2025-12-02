@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/router/router_swap_route_1route_3hop_wrapped_native_middle_filetest.gno

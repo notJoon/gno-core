@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/emission/leftamount_test.gno

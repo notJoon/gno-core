@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/p/gnoswap/gnsmath/swap_math_test.gno

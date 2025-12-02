@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/gnoswap/access/access_test.gno

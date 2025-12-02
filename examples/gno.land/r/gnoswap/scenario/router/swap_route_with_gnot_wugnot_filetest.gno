@@ -1,1 +1,0 @@
-/Users/notJoon/gnoswap/contract/r/scenario/router/swap_route_with_gnot_wugnot_filetest.gno
