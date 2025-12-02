@@ -82,6 +82,18 @@ func (opts *TestOptions) runFiletest(fname string, source []byte, tgs gno.Store,
 
 	// RUN THE FILETEST /////////////////////////////////////
 	result := opts.runTest(m, pkgPath, fname, source, opslog, tcheck)
+	
+	// Log total gas consumed
+	totalGas := m.GetGasConsumed()
+	if totalGas > 0 {
+		if opts.Verbose {
+			fmt.Printf("[FILETEST] %s - Total gas consumed: %d\n", fname, totalGas)
+		}
+		// Also log to machine output if Debug is enabled
+		if opts.Debug && totalGas > 0 {
+			m.Printf("\n[FILETEST DEBUG] Total gas consumed: %d\n", totalGas)
+		}
+	}
 
 	// updated tells whether the directives have been updated, and as such
 	// a new generated filetest should be returned.

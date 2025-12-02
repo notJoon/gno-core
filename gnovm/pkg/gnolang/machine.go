@@ -1110,6 +1110,15 @@ const (
 
 const GasFactorCPU int64 = 1
 
+// GetGasConsumed returns the total amount of gas consumed by the machine.
+// Returns 0 if GasMeter is nil.
+func (m *Machine) GetGasConsumed() int64 {
+	if m.GasMeter == nil {
+		return 0
+	}
+	return m.GasMeter.GasConsumed()
+}
+
 //----------------------------------------
 // "CPU" steps.
 
@@ -1117,6 +1126,9 @@ func (m *Machine) incrCPU(cycles int64) {
 	if m.GasMeter != nil {
 		gasCPU := overflow.Mulp(cycles, GasFactorCPU)
 		m.GasMeter.ConsumeGas(gasCPU, "CPUCycles") // May panic if out of gas.
+		if debug {
+			m.Printf("[GAS] Consumed %d gas (total: %d)\n", gasCPU, m.GasMeter.GasConsumed())
+		}
 	}
 	m.Cycles += cycles
 }
