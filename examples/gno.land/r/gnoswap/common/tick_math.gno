@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/common/tick_math.gno

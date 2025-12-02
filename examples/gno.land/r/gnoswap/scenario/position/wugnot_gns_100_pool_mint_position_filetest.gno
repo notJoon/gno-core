@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/position/wugnot_gns_100_pool_mint_position_filetest.gno

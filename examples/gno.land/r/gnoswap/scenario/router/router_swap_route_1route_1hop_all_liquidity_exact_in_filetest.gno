@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/router/router_swap_route_1route_1hop_all_liquidity_exact_in_filetest.gno

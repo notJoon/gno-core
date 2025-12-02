@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/gns/_helper_test.gno

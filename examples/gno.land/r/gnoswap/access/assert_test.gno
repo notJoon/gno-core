@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/access/assert_test.gno

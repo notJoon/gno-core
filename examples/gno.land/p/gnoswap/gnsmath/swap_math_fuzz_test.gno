@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/p/gnoswap/gnsmath/swap_math_fuzz_test.gno

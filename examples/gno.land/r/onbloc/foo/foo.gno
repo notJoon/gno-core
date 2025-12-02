@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/test_token/foo/foo.gno

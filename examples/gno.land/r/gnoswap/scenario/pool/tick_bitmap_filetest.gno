@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/pool/tick_bitmap_filetest.gno

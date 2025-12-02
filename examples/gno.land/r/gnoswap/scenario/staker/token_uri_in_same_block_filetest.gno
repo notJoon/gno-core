@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/staker/token_uri_in_same_block_filetest.gno

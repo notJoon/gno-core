@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/router/position_lifecycle_with_native_token_filetest.gno

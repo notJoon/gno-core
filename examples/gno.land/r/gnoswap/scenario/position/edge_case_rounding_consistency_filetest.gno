@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/position/edge_case_rounding_consistency_filetest.gno

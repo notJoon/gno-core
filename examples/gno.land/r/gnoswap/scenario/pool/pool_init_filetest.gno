@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/pool/pool_init_filetest.gno

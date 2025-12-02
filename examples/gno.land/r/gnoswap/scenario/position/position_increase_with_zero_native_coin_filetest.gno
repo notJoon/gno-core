@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/position/position_increase_with_zero_native_coin_filetest.gno

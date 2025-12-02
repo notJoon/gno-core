@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/position/position_mint_gnot_grc20_range_filetest.gno

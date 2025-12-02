@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/launchpad/v1/api_reward.gno

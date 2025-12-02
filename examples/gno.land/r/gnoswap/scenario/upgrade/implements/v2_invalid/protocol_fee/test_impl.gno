@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/upgrade/implements/v2_invalid/protocol_fee/test_impl.gno

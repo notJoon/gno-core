@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/pool/v1/oracle_integration_test.gno

@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/gov/governance/governance_proposal_execute_pool_fee_filetest.gno

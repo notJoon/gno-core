@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/pool/dryswap3_filetest.gno

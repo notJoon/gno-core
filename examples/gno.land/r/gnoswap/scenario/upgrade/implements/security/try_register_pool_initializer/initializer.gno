@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/upgrade/implements/security/try_register_pool_initializer/initializer.gno

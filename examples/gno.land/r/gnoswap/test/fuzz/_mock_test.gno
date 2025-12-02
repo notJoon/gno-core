@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/test/fuzz/_mock_test.gno

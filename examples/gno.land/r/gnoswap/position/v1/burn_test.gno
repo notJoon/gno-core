@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/position/v1/burn_test.gno

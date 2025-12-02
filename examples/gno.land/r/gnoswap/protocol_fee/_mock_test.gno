@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/protocol_fee/_mock_test.gno

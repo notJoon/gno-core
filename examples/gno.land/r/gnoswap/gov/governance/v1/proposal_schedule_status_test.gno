@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/gov/governance/v1/proposal_schedule_status_test.gno

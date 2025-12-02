@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/halt/config_test.gno

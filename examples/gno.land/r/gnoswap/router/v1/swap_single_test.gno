@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/router/v1/swap_single_test.gno

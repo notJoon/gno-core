@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/gov/governance/governance_proposal_community_pool_spend_filetest.gno

@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/gov/governance/governance_proposal_text_filetest.gno

@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/staker/full_internal_external_filetest.gno

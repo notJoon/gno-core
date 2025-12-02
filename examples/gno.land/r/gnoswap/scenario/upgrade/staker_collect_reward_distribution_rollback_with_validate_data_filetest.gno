@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/upgrade/staker_collect_reward_distribution_rollback_with_validate_data_filetest.gno

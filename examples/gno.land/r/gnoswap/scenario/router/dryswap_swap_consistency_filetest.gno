@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/router/dryswap_swap_consistency_filetest.gno

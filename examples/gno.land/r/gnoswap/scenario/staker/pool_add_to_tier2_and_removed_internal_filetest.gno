@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/staker/pool_add_to_tier2_and_removed_internal_filetest.gno

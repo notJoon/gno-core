@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/staker/v1/external_incentive_test.gno

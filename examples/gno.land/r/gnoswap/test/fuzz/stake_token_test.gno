@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/test/fuzz/stake_token_test.gno

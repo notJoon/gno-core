@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/halt/types_test.gno

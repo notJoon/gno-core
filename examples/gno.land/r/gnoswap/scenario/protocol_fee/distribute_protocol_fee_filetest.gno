@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/protocol_fee/distribute_protocol_fee_filetest.gno

@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/community_pool/errors.gno

@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/position/wugnot_gns_100_pool_burn_position_with_narrow_range_filetest.gno

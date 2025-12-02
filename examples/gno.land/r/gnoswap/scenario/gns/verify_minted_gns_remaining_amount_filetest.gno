@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/gns/verify_minted_gns_remaining_amount_filetest.gno

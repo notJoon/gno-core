@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/router/exact_out_swap_route_with_wrapped_native_output_token_filetest.gno

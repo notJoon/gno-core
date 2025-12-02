@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/router/router_swap_native_token_integration_filetest.gno

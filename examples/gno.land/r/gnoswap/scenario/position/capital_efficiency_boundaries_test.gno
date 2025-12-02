@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/position/capital_efficiency_boundaries_test.gno

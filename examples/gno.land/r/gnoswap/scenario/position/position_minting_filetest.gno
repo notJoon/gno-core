@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/position/position_minting_filetest.gno

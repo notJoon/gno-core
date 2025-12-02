@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/p/gnoswap/gnsmath/bit_math_test.gno

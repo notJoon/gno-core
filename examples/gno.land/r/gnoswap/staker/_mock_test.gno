@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/staker/_mock_test.gno

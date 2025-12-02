@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/upgrade/staker_upgrade_callback_permission_filetest.gno

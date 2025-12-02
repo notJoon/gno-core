@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/launchpad/launchpad_deposit_project_single_recipient_filetest.gno

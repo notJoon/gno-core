@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/gov/staker/complex_protocol_fee_reward_filetest.gno

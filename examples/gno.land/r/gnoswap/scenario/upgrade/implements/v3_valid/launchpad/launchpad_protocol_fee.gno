@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/upgrade/implements/v3_valid/launchpad/launchpad_protocol_fee.gno

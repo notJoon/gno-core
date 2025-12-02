@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/position/v1/_mock_test.gno

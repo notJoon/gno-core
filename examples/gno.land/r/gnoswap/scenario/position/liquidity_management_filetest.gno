@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/position/liquidity_management_filetest.gno

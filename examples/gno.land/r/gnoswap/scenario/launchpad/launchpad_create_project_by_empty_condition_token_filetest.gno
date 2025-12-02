@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/launchpad/launchpad_create_project_by_empty_condition_token_filetest.gno

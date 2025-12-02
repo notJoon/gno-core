@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/launchpad/v1/reward_manager_test.gno

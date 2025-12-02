@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/common/coins.gno

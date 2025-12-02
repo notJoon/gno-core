@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/position/verify_symmetric_liquidity_filetest.gno

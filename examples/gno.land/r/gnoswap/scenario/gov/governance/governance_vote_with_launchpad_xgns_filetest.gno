@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/gov/governance/governance_vote_with_launchpad_xgns_filetest.gno

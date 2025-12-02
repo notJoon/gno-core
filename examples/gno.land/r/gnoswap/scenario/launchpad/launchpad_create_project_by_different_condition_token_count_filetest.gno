@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/launchpad/launchpad_create_project_by_different_condition_token_count_filetest.gno

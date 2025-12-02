@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/mock/response.gno

@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/router/exact_in_swap_route_with_protocol_fee_filetest.gno

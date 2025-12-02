@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/p/gnoswap/fuzz/data.gno

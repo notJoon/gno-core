@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/gov/staker/delegate_with_emission_reward_filetest.gno

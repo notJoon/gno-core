@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/staker/v1/wrap_unwrap.gno

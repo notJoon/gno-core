@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/scenario/position/basic_position_management_filetest.gno

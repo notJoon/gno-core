@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/rbac/ownership_test.gno

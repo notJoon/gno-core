@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/r/gnoswap/pool/oracle.gno

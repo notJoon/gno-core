@@ -1,0 +1,1 @@
+/Users/notJoon/gnoswap/contract/p/gnoswap/fuzz/int256.gno
