@@ -53,17 +53,17 @@ func main() {
 
 These two examples demonstrate basic Go functionality without using concurrency, generics, or reflect.
 
-` + "## std Package" + `
+` + "## Chain Runtime Package" + `
 ` + "```gno" + `
-// @test: StdPackage
+// @test: ChainRuntime
 package main
 
 import (
-	"std"
+	"chain/runtime"
 )
 
 func main() {
-    addr := std.GetOrigCaller()
+    addr := runtime.OriginCaller()
     println(addr)
 }
 ` + "```" + `
@@ -88,7 +88,7 @@ func main() {
 			stdoutShouldContain: "=== StringReversal ===\n\n!oG ,olleH",
 		},
 		{
-			args:              []string{"doctest", "-path", mdFilePath, "-run", "StdPackage"},
+			args:              []string{"doctest", "-path", mdFilePath, "-run", "ChainRuntime"},
 			stdoutShouldMatch: `g[a-z0-9]+\n`,
 		},
 	}

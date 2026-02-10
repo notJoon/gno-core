@@ -83,5 +83,5 @@ func main() {
 }
 
 // Output:
-// (slice[(1 int),(2 int),(3 int)] gno.land/r/g14ch5q26mhx3jk5cxl88t278nper264ces4m8nt/run.ints)
+// (slice[(1 int),(2 int),(3 int)] main.ints)
 ```

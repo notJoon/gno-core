@@ -18,8 +18,9 @@ import (
 const testPrefix = "// @test:"
 
 var (
-	outputRegex = regexp.MustCompile(`(?m)^// Output:$([\s\S]*?)(?:^(?://\s*$|// Error:|$))`)
-	errorRegex  = regexp.MustCompile(`(?m)^// Error:$([\s\S]*?)(?:^(?://\s*$|// Output:|$))`)
+	outputRegex  = regexp.MustCompile(`(?m)^// Output:$([\s\S]*?)(?:^(?://\s*$|// Error:|$))`)
+	errorRegex   = regexp.MustCompile(`(?m)^// Error:$([\s\S]*?)(?:^(?://\s*$|// Output:|$))`)
+	optionRegex  = regexp.MustCompile(`@(\w+)(?:="([^"]*)")?`)
 )
 
 // codeBlock represents a block of code extracted from the input text.
@@ -363,8 +364,7 @@ func parseExecutionOptions(language string, firstLine []byte) ExecutionOptions {
 		// parse execution options from the first line of the code block
 		// e.g. // @should_panic="some panic message here"
 		//        |-option name-||-----option value-----|
-		re := regexp.MustCompile(`@(\w+)(?:="([^"]*)")?`)
-		matches := re.FindAllSubmatch(firstLine, -1)
+		matches := optionRegex.FindAllSubmatch(firstLine, -1)
 		for _, match := range matches {
 			switch string(match[1]) {
 			case "should_panic":

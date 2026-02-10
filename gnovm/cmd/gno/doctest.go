@@ -11,7 +11,6 @@ import (
 
 	dt "github.com/gnolang/gno/gnovm/pkg/doctest"
 	"github.com/gnolang/gno/tm2/pkg/commands"
-	"golang.org/x/sync/errgroup"
 )
 
 type doctestCfg struct {
@@ -70,19 +69,8 @@ func execDoctest(cfg *doctestCfg, _ []string, io commands.IO) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
 	defer cancel()
 
-	g, gctx := errgroup.WithContext(ctx)
-
-	var results []string
-	g.Go(func() error {
-		res, err := dt.ExecuteMatchingCodeBlock(gctx, content, cfg.runPattern, dt.GetStdlibsDir())
-		if err != nil {
-			return err
-		}
-		results = res
-		return nil
-	})
-
-	if err := g.Wait(); err != nil {
+	results, err := dt.ExecuteMatchingCodeBlock(ctx, content, cfg.runPattern, dt.GetStdlibsDir())
+	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("execution timed out after %v", cfg.timeout)
 		}
