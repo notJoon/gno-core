@@ -2,8 +2,6 @@ package doctest
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -34,7 +32,6 @@ const (
 )
 
 var (
-	cache      = newCache(maxCacheSize)
 	regexCache = make(map[string]*regexp.Regexp)
 
 	addrRegex = regexp.MustCompile(`gno\.land/[pre]/[a-z0-9]+/[a-z_/.]+`)
@@ -50,13 +47,6 @@ func ExecuteCodeBlock(c codeBlock, stdlibDir string) (string, error) {
 	lang := strings.Split(c.lang, ",")[0]
 	if lang != gnoLang {
 		return fmt.Sprintf("SKIPPED (Unsupported language: %s)", lang), nil
-	}
-
-	hashKey := hashCodeBlock(c)
-
-	// get the result from the cache if it exists
-	if result, found := cache.get(hashKey); found {
-		return handleCachedResult(result, c)
 	}
 
 	ctx, acck, _, vmk, stdlibCtx := setupEnv()
@@ -84,8 +74,6 @@ func ExecuteCodeBlock(c codeBlock, stdlibDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
-	cache.set(hashKey, res)
 
 	// If there is no expected output or error, It is considered
 	// a simple code execution and the result is returned as is.
@@ -180,21 +168,6 @@ func setupEnv() (
 	mcw.MultiWrite()
 
 	return ctx, acck, bank, vmk, stdlibCtx
-}
-
-func handleCachedResult(result string, c codeBlock) (string, error) {
-	res := strings.TrimSpace(result)
-
-	if c.expectedOutput == "" && c.expectedError == "" {
-		return fmt.Sprintf("%s (cached)", res), nil
-	}
-
-	res, err := compareResults(res, c.expectedOutput, c.expectedError)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("%s (cached)", res), nil
 }
 
 func handlePanicMessage(err error, panicMessage string) (string, error) {
@@ -325,9 +298,3 @@ func GetStdlibsDir() string {
 	return filepath.Join(filepath.Dir(filename), "..", "..", "stdlibs")
 }
 
-// hashCodeBlock generates a SHA256 hash for the given code block.
-func hashCodeBlock(c codeBlock) string {
-	h := sha256.New()
-	h.Write([]byte(c.content))
-	return hex.EncodeToString(h.Sum(nil))
-}

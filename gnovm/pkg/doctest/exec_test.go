@@ -9,45 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestHashCodeBlock(t *testing.T) {
-	t.Parallel()
-	codeBlock1 := codeBlock{
-		content: `
-package main
-
-func main() {
-	println("Hello, World")
-}`,
-		lang: "gno",
-	}
-	codeBlock2 := codeBlock{
-		content: `
-package main
-
-func main() {
-	println("Hello, World!")
-}`,
-		lang: "gno",
-	}
-	codeBlock3 := codeBlock{
-		content: `
-package main
-
-func main() {
-    println("Hello, World!")
-}`,
-		lang: "gno",
-	}
-
-	hashKey1 := hashCodeBlock(codeBlock1)
-	hashKey2 := hashCodeBlock(codeBlock2)
-	hashKey3 := hashCodeBlock(codeBlock3)
-
-	assert.NotEqual(t, hashKey1, hashKey2)
-	assert.NotEqual(t, hashKey2, hashKey3)
-	assert.NotEqual(t, hashKey1, hashKey3)
-}
-
 func TestExecuteCodeBlock(t *testing.T) {
 	tests := []struct {
 		name           string
