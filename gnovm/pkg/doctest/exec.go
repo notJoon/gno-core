@@ -19,7 +19,20 @@ const (
 	SHOULD_PANIC = "should_panic" // Expect a panic
 	ASSERT       = "assert"       // Assert the result and expected output are equal
 	gnoLang      = "gno"
+	gnoDoctest   = "gnodoctest"   // Alternative tag for GitHub syntax highlighting (e.g. "go,gnodoctest")
 )
+
+// isGnoDoctest checks if the language tag contains "gnodoctest",
+// which allows using "go,gnodoctest" for GitHub syntax highlighting
+// while still being recognized as a gno code block.
+func isGnoDoctest(lang string) bool {
+	for _, part := range strings.Split(lang, ",") {
+		if strings.TrimSpace(part) == gnoDoctest {
+			return true
+		}
+	}
+	return false
+}
 
 var (
 	regexCache = make(map[string]*regexp.Regexp)
@@ -33,11 +46,14 @@ func ExecuteCodeBlock(c codeBlock, stdlibDir string) (string, error) {
 		return "IGNORED", nil
 	}
 
-	// Extract the actual language from the lang field
+	// Extract the actual language from the lang field.
+	// Supports "gno" and "go,gnodoctest" (for GitHub syntax highlighting).
 	lang := strings.Split(c.lang, ",")[0]
-	if lang != gnoLang {
+	if lang != gnoLang && !isGnoDoctest(c.lang) {
 		return fmt.Sprintf("SKIPPED (Unsupported language: %s)", lang), nil
 	}
+	// Normalize language to gno for file naming.
+	lang = gnoLang
 
 	ctx, acck, _, vmk, stdlibCtx := setupEnv(stdlibDir)
 

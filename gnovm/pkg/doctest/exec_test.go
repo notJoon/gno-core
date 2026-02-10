@@ -173,6 +173,19 @@ func main() {
 			expectedResult: "panicked as expected: Specific error message",
 		},
 		{
+			name: "go,gnodoctest tag",
+			codeBlock: codeBlock{
+				content: `
+package main
+
+func main() {
+	println("Hello from gnodoctest!")
+}`,
+				lang: "go,gnodoctest",
+			},
+			expectedResult: "Hello from gnodoctest!\n",
+		},
+		{
 			name: "unsupported language 1",
 			codeBlock: codeBlock{
 				content: `
