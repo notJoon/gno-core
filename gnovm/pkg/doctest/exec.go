@@ -5,22 +5,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 
 	"github.com/gnolang/gno/gno.land/pkg/sdk/vm"
-	bft "github.com/gnolang/gno/tm2/pkg/bft/types"
+	"github.com/gnolang/gno/gnovm/pkg/gnoenv"
 	"github.com/gnolang/gno/tm2/pkg/crypto/ed25519"
-	"github.com/gnolang/gno/tm2/pkg/db/memdb"
-	"github.com/gnolang/gno/tm2/pkg/log"
-	"github.com/gnolang/gno/tm2/pkg/sdk"
-	authm "github.com/gnolang/gno/tm2/pkg/sdk/auth"
-	bankm "github.com/gnolang/gno/tm2/pkg/sdk/bank"
-	paramsm "github.com/gnolang/gno/tm2/pkg/sdk/params"
 	"github.com/gnolang/gno/tm2/pkg/std"
-	"github.com/gnolang/gno/tm2/pkg/store"
-	"github.com/gnolang/gno/tm2/pkg/store/dbadapter"
-	"github.com/gnolang/gno/tm2/pkg/store/iavl"
 )
 
 // Option constants
@@ -49,7 +39,7 @@ func ExecuteCodeBlock(c codeBlock, stdlibDir string) (string, error) {
 		return fmt.Sprintf("SKIPPED (Unsupported language: %s)", lang), nil
 	}
 
-	ctx, acck, _, vmk, stdlibCtx := setupEnv()
+	ctx, acck, _, vmk, stdlibCtx := setupEnv(stdlibDir)
 
 	files := []*std.MemFile{
 		{Name: fmt.Sprintf("%d.%s", c.index, lang), Body: c.content},
@@ -91,6 +81,7 @@ func ExecuteMatchingCodeBlock(
 	ctx context.Context,
 	content string,
 	pattern string,
+	stdlibsDir string,
 ) ([]string, error) {
 	codeBlocks, err := GetCodeBlocks(content)
 	if err != nil {
@@ -107,7 +98,7 @@ func ExecuteMatchingCodeBlock(
 			continue
 		}
 
-		result, err := ExecuteCodeBlock(block, GetStdlibsDir())
+		result, err := ExecuteCodeBlock(block, stdlibsDir)
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute code block %s: %w", block.name, err)
 		}
@@ -117,58 +108,6 @@ func ExecuteMatchingCodeBlock(
 	return results, nil
 }
 
-// setupEnv creates and initializes the execution environment for running extracted code blocks.
-// It sets up necessary keepers (account, bank, VM), initializes a test chain context,
-// and loads standard libraries. The function returns the context, keepers, and stdlib context
-// needed for code execution.
-//
-// ref: gno.land/pkg/sdk/vm/common_test.go
-func setupEnv() (
-	sdk.Context,
-	authm.AccountKeeper,
-	bankm.BankKeeper,
-	*vm.VMKeeper,
-	sdk.Context,
-) {
-	baseKey := store.NewStoreKey("baseKey")
-	iavlKey := store.NewStoreKey("iavlKey")
-
-	db := memdb.NewMemDB()
-
-	ms := store.NewCommitMultiStore(db)
-	ms.MountStoreWithDB(baseKey, dbadapter.StoreConstructor, db)
-	ms.MountStoreWithDB(iavlKey, iavl.StoreConstructor, db)
-	ms.LoadLatestVersion()
-
-	ctx := sdk.NewContext(
-		sdk.RunTxModeDeliver,
-		ms,
-		&bft.Header{ChainID: "test-chain-id"},
-		log.NewNoopLogger(),
-	)
-	prmk := paramsm.NewParamsKeeper(iavlKey)
-	acck := authm.NewAccountKeeper(iavlKey, prmk.ForModule(authm.ModuleName), std.ProtoBaseAccount)
-	bank := bankm.NewBankKeeper(acck, prmk.ForModule(bankm.ModuleName))
-
-	prmk.Register(authm.ModuleName, acck)
-	prmk.Register(bankm.ModuleName, bank)
-
-	mcw := ms.MultiCacheWrap()
-
-	vmk := vm.NewVMKeeper(baseKey, iavlKey, acck, bank, prmk)
-	prmk.Register(vm.ModuleName, vmk)
-	vmk.SetParams(ctx, vm.DefaultParams())
-	vmk.Initialize(log.NewNoopLogger(), mcw)
-
-	stdlibCtx := vmk.MakeGnoTransactionStore(ctx.WithMultiStore(mcw))
-	stdlibsDir := GetStdlibsDir()
-	vmk.LoadStdlib(stdlibCtx, stdlibsDir)
-	vmk.CommitGnoTransactionStore(stdlibCtx)
-
-	mcw.MultiWrite()
-
-	return ctx, acck, bank, vmk, stdlibCtx
-}
 
 func handlePanicMessage(err error, panicMessage string) (string, error) {
 	if err == nil {
@@ -289,12 +228,9 @@ func replacePackagePath(input string) string {
 	return result
 }
 
-// GetStdlibsDir returns the path to the standard libraries directory.
+// GetStdlibsDir returns the path to the standard libraries directory
+// based on GNOROOT.
 func GetStdlibsDir() string {
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("cannot get current file path")
-	}
-	return filepath.Join(filepath.Dir(filename), "..", "..", "stdlibs")
+	return filepath.Join(gnoenv.RootDir(), "gnovm", "stdlibs")
 }
 

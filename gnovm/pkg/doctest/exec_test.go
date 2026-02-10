@@ -387,7 +387,7 @@ func main() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			results, err := ExecuteMatchingCodeBlock(ctx, tt.content, tt.pattern)
+			results, err := ExecuteMatchingCodeBlock(ctx, tt.content, tt.pattern, GetStdlibsDir())
 
 			if tt.expectError {
 				assert.NotNil(t, err)

@@ -74,7 +74,7 @@ func execDoctest(cfg *doctestCfg, _ []string, io commands.IO) error {
 
 	var results []string
 	g.Go(func() error {
-		res, err := dt.ExecuteMatchingCodeBlock(gctx, content, cfg.runPattern)
+		res, err := dt.ExecuteMatchingCodeBlock(gctx, content, cfg.runPattern, dt.GetStdlibsDir())
 		if err != nil {
 			return err
 		}
