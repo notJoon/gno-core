@@ -13,13 +13,11 @@ import (
 	"github.com/gnolang/gno/tm2/pkg/std"
 )
 
-// Option constants
 const (
-	IGNORE       = "ignore"       // Do not run the code block
-	SHOULD_PANIC = "should_panic" // Expect a panic
-	ASSERT       = "assert"       // Assert the result and expected output are equal
-	gnoLang      = "gno"
-	gnoDoctest   = "gnodoctest"   // Alternative tag for GitHub syntax highlighting (e.g. "go,gnodoctest")
+	optIgnore     = "ignore"       // Do not run the code block
+	optShouldPanic = "should_panic" // Expect a panic
+	gnoLang        = "gno"
+	gnoDoctest     = "gnodoctest"   // Alternative tag for GitHub syntax highlighting (e.g. "go,gnodoctest")
 )
 
 // isGnoDoctest checks if the language tag contains "gnodoctest",
@@ -188,21 +186,14 @@ func compareRegex(actual, pattern string) (string, error) {
 }
 
 // getCompiledRegex retrieves or compiles a regex pattern.
-// it uses a cache to store compiled regex patterns for reuse.
 func getCompiledRegex(pattern string) (*regexp.Regexp, error) {
-	re, exists := regexCache[pattern]
-	if exists {
+	if re, exists := regexCache[pattern]; exists {
 		return re, nil
 	}
 
-	// double-check in case another goroutine has compiled the regex
-	if re, exists = regexCache[pattern]; exists {
-		return re, nil
-	}
-
-	compiledPattern := regexp.QuoteMeta(pattern)                       // Escape all regex meta characters
-	compiledPattern = strings.ReplaceAll(compiledPattern, "\\*", ".*") // Replace escaped `*` with `.*` to match any character
-	re, err := regexp.Compile(compiledPattern)                         // Compile the converted pattern
+	compiledPattern := regexp.QuoteMeta(pattern)
+	compiledPattern = strings.ReplaceAll(compiledPattern, "\\*", ".*")
+	re, err := regexp.Compile(compiledPattern)
 	if err != nil {
 		return nil, err
 	}

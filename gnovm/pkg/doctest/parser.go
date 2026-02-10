@@ -78,8 +78,7 @@ func createCodeBlock(node *mast.FencedCodeBlock, body string, index int) (codeBl
 		language = "plain"
 	}
 
-	firstLine := body[lines.At(0).Start:lines.At(0).Stop]
-	options := parseExecutionOptions(language, []byte(firstLine))
+	options := parseExecutionOptions(language, content)
 
 	start := lines.At(0).Start
 	end := lines.At(node.Lines().Len() - 1).Stop
@@ -143,11 +142,21 @@ func cleanSection(section string) (string, error) {
 	var cleanedLines []string
 
 	for scanner.Scan() {
-		line := strings.TrimSpace(strings.TrimPrefix(scanner.Text(), "//"))
-		line = strings.TrimSpace(line)
-		if line != "" {
-			cleanedLines = append(cleanedLines, line)
+		raw := scanner.Text()
+		trimmed := strings.TrimSpace(raw)
+
+		// Skip lines that are not comment lines.
+		if !strings.HasPrefix(trimmed, "//") {
+			continue
 		}
+
+		// Remove the "//" prefix and at most one leading space.
+		line := strings.TrimPrefix(trimmed, "//")
+		if strings.HasPrefix(line, " ") {
+			line = line[1:]
+		}
+
+		cleanedLines = append(cleanedLines, line)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -346,32 +355,36 @@ type ExecutionOptions struct {
 	// TODO: add more options
 }
 
-func parseExecutionOptions(language string, firstLine []byte) ExecutionOptions {
+func parseExecutionOptions(language string, content string) ExecutionOptions {
 	var options ExecutionOptions
 
 	parts := strings.Split(language, ",")
 	for _, option := range parts[1:] { // skip the first part which is the language
 		switch strings.TrimSpace(option) {
-		case "ignore":
+		case optIgnore:
 			options.Ignore = true
-		case "should_panic":
+		case optShouldPanic:
 			// specific panic message will be parsed later
 		}
 	}
 
-	// parser options from the first line of the code block
-	if bytes.HasPrefix(firstLine, []byte("//")) {
-		// parse execution options from the first line of the code block
-		// e.g. // @should_panic="some panic message here"
-		//        |-option name-||-----option value-----|
-		matches := optionRegex.FindAllSubmatch(firstLine, -1)
+	// Scan all comment lines for @ directives.
+	// e.g. // @should_panic="some panic message here"
+	//        |-option name-||-----option value-----|
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	for scanner.Scan() {
+		line := []byte(strings.TrimSpace(scanner.Text()))
+		if !bytes.HasPrefix(line, []byte("//")) {
+			continue
+		}
+		matches := optionRegex.FindAllSubmatch(line, -1)
 		for _, match := range matches {
 			switch string(match[1]) {
-			case "should_panic":
+			case optShouldPanic:
 				if match[2] != nil {
 					options.PanicMessage = string(match[2])
 				}
-			case "ignore":
+			case optIgnore:
 				options.Ignore = true
 			}
 		}

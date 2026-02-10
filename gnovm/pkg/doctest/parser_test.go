@@ -180,7 +180,7 @@ fmt.Println("  Indented")
 // Output:
 //   Indented
 `,
-			wantOutput: "Indented",
+			wantOutput: "  Indented",
 			wantError:  "",
 		},
 		{
@@ -342,46 +342,52 @@ var x = 5
 
 func TestParseExecutionOptions(t *testing.T) {
 	tests := []struct {
-		name      string
-		language  string
-		firstLine string
-		want      ExecutionOptions
+		name     string
+		language string
+		content  string
+		want     ExecutionOptions
 	}{
 		{
-			name:      "No options",
-			language:  "go",
-			firstLine: "package main",
-			want:      ExecutionOptions{},
+			name:     "No options",
+			language: "go",
+			content:  "package main",
+			want:     ExecutionOptions{},
 		},
 		{
-			name:      "Ignore option in language tag",
-			language:  "go,ignore",
-			firstLine: "package main",
-			want:      ExecutionOptions{Ignore: true},
+			name:     "Ignore option in language tag",
+			language: "go,ignore",
+			content:  "package main",
+			want:     ExecutionOptions{Ignore: true},
 		},
 		{
-			name:      "Should panic option in language tag",
-			language:  "go,should_panic",
-			firstLine: "package main",
-			want:      ExecutionOptions{PanicMessage: ""},
+			name:     "Should panic option in language tag",
+			language: "go,should_panic",
+			content:  "package main",
+			want:     ExecutionOptions{PanicMessage: ""},
 		},
 		{
-			name:      "Should panic with message in comment",
-			language:  "go,should_panic",
-			firstLine: "// @should_panic=\"division by zero\"",
-			want:      ExecutionOptions{PanicMessage: "division by zero"},
+			name:     "Should panic with message in comment",
+			language: "go,should_panic",
+			content:  "// @should_panic=\"division by zero\"",
+			want:     ExecutionOptions{PanicMessage: "division by zero"},
 		},
 		{
-			name:      "Multiple options",
-			language:  "go,ignore,should_panic",
-			firstLine: "// @should_panic=\"runtime error\"",
-			want:      ExecutionOptions{Ignore: true, PanicMessage: "runtime error"},
+			name:     "Multiple options",
+			language: "go,ignore,should_panic",
+			content:  "// @should_panic=\"runtime error\"",
+			want:     ExecutionOptions{Ignore: true, PanicMessage: "runtime error"},
+		},
+		{
+			name:     "Option on second line after @test",
+			language: "gno",
+			content:  "// @test: my_test\n// @should_panic=\"out of bounds\"",
+			want:     ExecutionOptions{PanicMessage: "out of bounds"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseExecutionOptions(tt.language, []byte(tt.firstLine))
+			got := parseExecutionOptions(tt.language, tt.content)
 			assert.Equal(t, tt.want, got)
 		})
 	}
