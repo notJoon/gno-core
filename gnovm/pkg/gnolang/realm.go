@@ -373,7 +373,9 @@ func (rlm *Realm) FinalizeRealmTransaction(store Store) {
 	rlm.processNewEscapedMarks(store, 0)
 	// given created and updated objects,
 	// mark all owned-ancestors also as dirty.
+	updatedBeforeAncestors := len(rlm.updated)
 	rlm.markDirtyAncestors(store)
+	ancestorCount := len(rlm.updated) - updatedBeforeAncestors
 	if debugRealm {
 		ensureUniq(rlm.created, rlm.updated)
 		ensureUniq(rlm.escaped)
@@ -387,6 +389,20 @@ func (rlm *Realm) FinalizeRealmTransaction(store Store) {
 	rlm.saveNewEscaped(store)
 	// delete all deleted objects.
 	rlm.removeDeletedObjects(store)
+
+	// Log realm stats before clearing marks.
+	if logger := store.GetRealmStatsLogger(); logger != nil {
+		stats := RealmStats{
+			Path:      rlm.Path,
+			Created:   len(rlm.created),
+			Updated:   updatedBeforeAncestors,
+			Ancestors: ancestorCount,
+			Deleted:   len(rlm.deleted),
+			BytesDiff: rlm.sumDiff,
+		}
+		logger.LogDetailedStats(stats, rlm.created, rlm.updated, rlm.deleted)
+	}
+
 	// reset realm state for new transaction.
 	rlm.clearMarks()
 
