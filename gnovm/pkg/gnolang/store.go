@@ -82,6 +82,8 @@ type Store interface {
 	GetNative(pkgPath string, name Name) func(m *Machine) // for native functions
 	SetLogStoreOps(dst io.Writer)
 	LogFinalizeRealm(rlmpath string) // to mark finalization of realm boundaries
+	SetRealmStatsLogger(logger *realmStatsLogger)
+	GetRealmStatsLogger() *realmStatsLogger
 	Print()
 }
 
@@ -160,8 +162,9 @@ type defaultStore struct {
 	aminoCache     *ristretto.Cache[[]byte, Type]
 
 	// transient
-	opslog  io.Writer // for logging store operations.
-	current []string  // for detecting import cycles.
+	opslog         io.Writer         // for logging store operations.
+	realmStatsLog  *realmStatsLogger // for logging per-realm object stats.
+	current        []string          // for detecting import cycles.
 
 	// gas
 	gasMeter  store.GasMeter
@@ -236,8 +239,9 @@ func (ds *defaultStore) BeginTransaction(baseStore, iavlStore store.Store, gasMe
 		aminoCache: ds.aminoCache,
 
 		// transient
-		current: nil,
-		opslog:  nil,
+		current:       nil,
+		opslog:        nil,
+		realmStatsLog: ds.realmStatsLog, // inherit from parent store
 		// reset at the message level
 		realmStorageDiffs: make(map[string]int64),
 	}
@@ -1170,6 +1174,14 @@ func (ds *defaultStore) LogFinalizeRealm(rlmpath string) {
 	if ds.opslog != nil {
 		fmt.Fprintf(ds.opslog, "finalizerealm[%q]\n", rlmpath)
 	}
+}
+
+func (ds *defaultStore) SetRealmStatsLogger(logger *realmStatsLogger) {
+	ds.realmStatsLog = logger
+}
+
+func (ds *defaultStore) GetRealmStatsLogger() *realmStatsLogger {
+	return ds.realmStatsLog
 }
 
 // for debugging

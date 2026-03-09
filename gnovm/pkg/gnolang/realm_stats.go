@@ -1,0 +1,125 @@
+package gnolang
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"reflect"
+	"sync"
+)
+
+// RealmStats captures per-realm object mutation statistics
+// during FinalizeRealmTransaction.
+type RealmStats struct {
+	Path      string
+	Created   int   // new objects persisted
+	Updated   int   // directly modified existing objects
+	Ancestors int   // additional objects re-serialized via dirty propagation
+	Deleted   int   // removed objects
+	BytesDiff int64 // net storage byte difference
+}
+
+// realmStatsLogger manages writing realm stats to a destination.
+type realmStatsLogger struct {
+	mu     sync.Mutex
+	w      io.Writer
+	closer io.Closer // non-nil if we opened the file
+}
+
+// newRealmStatsLogger creates a logger from a file path.
+// If path is empty, returns nil (disabled).
+// Special values: "stdout" → os.Stdout, "stderr" → os.Stderr.
+func NewRealmStatsLogger(path string) *realmStatsLogger {
+	if path == "" {
+		return nil
+	}
+	switch path {
+	case "stdout":
+		return &realmStatsLogger{w: os.Stdout}
+	case "stderr":
+		return &realmStatsLogger{w: os.Stderr}
+	default:
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "WARN: cannot open realm stats log %q: %v\n", path, err)
+			return nil
+		}
+		return &realmStatsLogger{w: f, closer: f}
+	}
+}
+
+func (l *realmStatsLogger) Close() {
+	if l != nil && l.closer != nil {
+		l.closer.Close()
+	}
+}
+
+// LogStats writes a single realm's stats as a structured line.
+func (l *realmStatsLogger) LogStats(s RealmStats) {
+	if l == nil || l.w == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	fmt.Fprintf(l.w,
+		"[realm-stats] path=%-50s created=%3d updated=%3d ancestors=%3d deleted=%3d bytes=%+d\n",
+		s.Path, s.Created, s.Updated, s.Ancestors, s.Deleted, s.BytesDiff)
+}
+
+// LogSeparator writes a transaction boundary marker.
+func (l *realmStatsLogger) LogSeparator(label string) {
+	if l == nil || l.w == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	fmt.Fprintf(l.w, "--- %s ---\n", label)
+}
+
+// objectTypeName returns a short type name for an Object.
+func objectTypeName(oo Object) string {
+	return reflect.TypeOf(oo).Elem().Name()
+}
+
+// collectObjectTypeCounts groups objects by type and returns counts.
+func collectObjectTypeCounts(objects []Object) map[string]int {
+	counts := make(map[string]int)
+	for _, oo := range objects {
+		counts[objectTypeName(oo)]++
+	}
+	return counts
+}
+
+// LogDetailedStats writes per-type breakdown for a realm.
+// Skips realms with no activity (all counts zero).
+func (l *realmStatsLogger) LogDetailedStats(s RealmStats, created, updated, deleted []Object) {
+	if l == nil || l.w == nil {
+		return
+	}
+	// Skip zero-activity entries to reduce noise.
+	if s.Created == 0 && s.Updated == 0 && s.Ancestors == 0 && s.Deleted == 0 {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	fmt.Fprintf(l.w,
+		"[realm-stats] path=%-50s created=%3d updated=%3d ancestors=%3d deleted=%3d bytes=%+d\n",
+		s.Path, s.Created, s.Updated, s.Ancestors, s.Deleted, s.BytesDiff)
+
+	if len(created) > 0 {
+		for typeName, count := range collectObjectTypeCounts(created) {
+			fmt.Fprintf(l.w, "  [created] %-25s x%d\n", typeName, count)
+		}
+	}
+	if len(updated) > 0 {
+		for typeName, count := range collectObjectTypeCounts(updated) {
+			fmt.Fprintf(l.w, "  [updated] %-25s x%d\n", typeName, count)
+		}
+	}
+	if len(deleted) > 0 {
+		for typeName, count := range collectObjectTypeCounts(deleted) {
+			fmt.Fprintf(l.w, "  [deleted] %-25s x%d\n", typeName, count)
+		}
+	}
+}
