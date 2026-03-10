@@ -248,6 +248,10 @@ func StoreWithOptions(
 	// Make a new gno store.
 	gnoStore = gno.NewStore(nil, baseStore, baseStore)
 	gnoStore.SetPackageGetter(getPackage)
+	// Enable realm stats logging for unit tests when GNO_REALM_STATS_LOG is set.
+	if statsPath := os.Getenv("GNO_REALM_STATS_LOG"); statsPath != "" {
+		gnoStore.SetRealmStatsLogger(gno.NewRealmStatsLogger(statsPath))
+	}
 	if opts.Testing {
 		gnoStore.SetNativeResolver(teststdlibs.NativeResolver)
 	} else {
