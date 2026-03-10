@@ -76,6 +76,18 @@ func (l *realmStatsLogger) LogSeparator(label string) {
 	fmt.Fprintf(l.w, "--- %s ---\n", label)
 }
 
+// LogFinalizeTrigger writes which function return triggered a FinalizeRealmTransaction
+// and why (explicit cross, implicit realm switch, or machine exit).
+func (l *realmStatsLogger) LogFinalizeTrigger(realmPath, funcName, reason, prevRealm string) {
+	if l == nil || l.w == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	fmt.Fprintf(l.w, "  [finalize-trigger] realm=%-40s func=%-50s reason=%-15s prev_realm=%s\n",
+		realmPath, funcName, reason, prevRealm)
+}
+
 // objectTypeName returns a short type name for an Object.
 func objectTypeName(oo Object) string {
 	return reflect.TypeOf(oo).Elem().Name()
