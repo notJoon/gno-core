@@ -84,10 +84,12 @@ type MachineOptions struct {
 }
 
 const (
-	startingOpsCap = 1024
-	// sizeof(TypedValue) is 40 at time of writing; this ensures that the values
-	// slice occupies 1000 bytes by default.
-	startingValuesCap = 25
+	startingOpsCap     = 1024
+	startingValuesCap  = 512
+	startingExprsCap   = 128
+	startingStmtsCap   = 128
+	startingBlocksCap  = 64
+	startingFramesCap  = 32
 )
 
 // the machine constructor gets spammed
@@ -99,6 +101,10 @@ var machinePool = sync.Pool{
 		return &Machine{
 			Ops:    make([]Op, 0, startingOpsCap),
 			Values: make([]TypedValue, 0, startingValuesCap),
+			Exprs:  make([]Expr, 0, startingExprsCap),
+			Stmts:  make([]Stmt, 0, startingStmtsCap),
+			Blocks: make([]*Block, 0, startingBlocksCap),
+			Frames: make([]Frame, 0, startingFramesCap),
 		}
 	},
 }
@@ -166,11 +172,49 @@ func NewMachineWithOptions(opts MachineOptions) *Machine {
 // package's constructors should be released.
 func (m *Machine) Release() {
 	// here we zero in the values for the next user
-	ops, values := m.Ops[:0:startingOpsCap], m.Values[:0:startingValuesCap]
+	ops := m.Ops[:0:startingOpsCap]
+	values := m.Values[:0:startingValuesCap]
 	clear(ops[:startingOpsCap])
 	clear(values[:startingValuesCap])
-	*m = Machine{Ops: ops, Values: values}
 
+	// Preserve other stacks if they have sufficient capacity.
+	var exprs []Expr
+	if cap(m.Exprs) >= startingExprsCap {
+		exprs = m.Exprs[:0:startingExprsCap]
+		clear(exprs[:startingExprsCap])
+	} else {
+		exprs = make([]Expr, 0, startingExprsCap)
+	}
+	var stmts []Stmt
+	if cap(m.Stmts) >= startingStmtsCap {
+		stmts = m.Stmts[:0:startingStmtsCap]
+		clear(stmts[:startingStmtsCap])
+	} else {
+		stmts = make([]Stmt, 0, startingStmtsCap)
+	}
+	var blocks []*Block
+	if cap(m.Blocks) >= startingBlocksCap {
+		blocks = m.Blocks[:0:startingBlocksCap]
+		clear(blocks[:startingBlocksCap])
+	} else {
+		blocks = make([]*Block, 0, startingBlocksCap)
+	}
+	var frames []Frame
+	if cap(m.Frames) >= startingFramesCap {
+		frames = m.Frames[:0:startingFramesCap]
+		clear(frames[:startingFramesCap])
+	} else {
+		frames = make([]Frame, 0, startingFramesCap)
+	}
+
+	*m = Machine{
+		Ops:    ops,
+		Values: values,
+		Exprs:  exprs,
+		Stmts:  stmts,
+		Blocks: blocks,
+		Frames: frames,
+	}
 	machinePool.Put(m)
 }
 
