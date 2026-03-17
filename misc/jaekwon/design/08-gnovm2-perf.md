@@ -75,8 +75,8 @@ via lastGCCycle; skip old-gen objects unless dirtied.
 | 1 | Pre-allocate stacks | DONE |
 | 2 | Batch gas metering | SKIP (done elsewhere) |
 | 3 | Inline NameExpr depth | DONE |
-| 4 | Inline baseOf() | TODO |
-| 5 | Remove PkgID mutex | TODO |
+| 4 | Inline baseOf() | SKIP (already inlined by compiler) |
+| 5 | Remove PkgID mutex | DONE |
 | 6 | Superinstructions | TODO |
 | 7 | Pool big.Int | TODO |
 | 8 | Generational GC | TODO |

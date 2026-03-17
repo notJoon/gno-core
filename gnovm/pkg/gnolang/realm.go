@@ -78,25 +78,19 @@ func (pid PkgID) Bytes() []byte {
 	return pid.Hashlet[:]
 }
 
-var (
-	pkgIDFromPkgPathCacheMu sync.Mutex // protects the shared cache.
-	// TODO: later on switch this to an LRU if needed to ensure
-	// fixed memory caps. For now though it isn't a problem:
-	// https://github.com/gnolang/gno/pull/3424#issuecomment-2564571785
-	pkgIDFromPkgPathCache = make(map[string]*PkgID, 100)
-)
+// pkgIDFromPkgPathCache is a read-optimized concurrent cache.
+// sync.Map is lock-free on the read path (cache hits dominate).
+// TODO: switch to an LRU if needed to ensure fixed memory caps.
+// https://github.com/gnolang/gno/pull/3424#issuecomment-2564571785
+var pkgIDFromPkgPathCache sync.Map
 
 func PkgIDFromPkgPath(path string) PkgID {
-	pkgIDFromPkgPathCacheMu.Lock()
-	defer pkgIDFromPkgPathCacheMu.Unlock()
-
-	pkgID, ok := pkgIDFromPkgPathCache[path]
-	if !ok {
-		pkgID = new(PkgID)
-		*pkgID = PkgID{HashBytes([]byte(path))}
-		pkgIDFromPkgPathCache[path] = pkgID
+	if v, ok := pkgIDFromPkgPathCache.Load(path); ok {
+		return *v.(*PkgID)
 	}
-	return *pkgID
+	pkgID := &PkgID{HashBytes([]byte(path))}
+	actual, _ := pkgIDFromPkgPathCache.LoadOrStore(path, pkgID)
+	return *actual.(*PkgID)
 }
 
 // Returns the ObjectID of the PackageValue associated with path.
