@@ -74,7 +74,7 @@ via lastGCCycle; skip old-gen objects unless dirtied.
 |---|------|--------|
 | 1 | Pre-allocate stacks | DONE |
 | 2 | Batch gas metering | SKIP (done elsewhere) |
-| 3 | Inline NameExpr depth | TODO |
+| 3 | Inline NameExpr depth | DONE |
 | 4 | Inline baseOf() | TODO |
 | 5 | Remove PkgID mutex | TODO |
 | 6 | Superinstructions | TODO |
