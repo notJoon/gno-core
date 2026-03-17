@@ -10,13 +10,19 @@ import (
 	"gno.land/p/nt/ufmt/v0"
 )
 
+// tokenData holds all per-token state in a single struct,
+// eliminating the need for separate owners/tokenURIs/tokenApprovals trees.
+type tokenData struct {
+	approved address
+	owner    address
+	uri      string
+}
+
 type basicNFT struct {
 	name              string
 	symbol            string
-	owners            avl.Tree // tokenId -> OwnerAddress
+	tokens            avl.Tree // tokenId -> tokenData (owner + uri + approved)
 	balances          avl.Tree // OwnerAddress -> TokenCount
-	tokenApprovals    avl.Tree // TokenId -> ApprovedAddress
-	tokenURIs         avl.Tree // TokenId -> URIs
 	operatorApprovals avl.Tree // "OwnerAddress:OperatorAddress" -> bool
 }
 
@@ -26,17 +32,24 @@ func NewBasicNFT(name string, symbol string) *basicNFT {
 		name:   name,
 		symbol: symbol,
 
-		owners:            avl.Tree{},
+		tokens:            avl.Tree{},
 		balances:          avl.Tree{},
-		tokenApprovals:    avl.Tree{},
-		tokenURIs:         avl.Tree{},
 		operatorApprovals: avl.Tree{},
 	}
 }
 
 func (s *basicNFT) Name() string      { return s.name }
 func (s *basicNFT) Symbol() string    { return s.symbol }
-func (s *basicNFT) TokenCount() int64 { return int64(s.owners.Size()) }
+func (s *basicNFT) TokenCount() int64 { return int64(s.tokens.Size()) }
+
+// getToken retrieves the tokenData for a given token ID.
+func (s *basicNFT) getToken(tid TokenID) (tokenData, bool) {
+	val, found := s.tokens.Get(string(tid))
+	if !found {
+		return tokenData{}, false
+	}
+	return val.(tokenData), true
+}
 
 // BalanceOf returns balance of input address
 func (s *basicNFT) BalanceOf(addr address) (int64, error) {
@@ -54,40 +67,36 @@ func (s *basicNFT) BalanceOf(addr address) (int64, error) {
 
 // OwnerOf returns owner of input token id
 func (s *basicNFT) OwnerOf(tid TokenID) (address, error) {
-	owner, found := s.owners.Get(string(tid))
+	td, found := s.getToken(tid)
 	if !found {
 		return "", ErrInvalidTokenId
 	}
 
-	return owner.(address), nil
+	return td.owner, nil
 }
 
 // TokenURI returns the URI of input token id
 func (s *basicNFT) TokenURI(tid TokenID) (string, error) {
-	uri, found := s.tokenURIs.Get(tid.String())
+	td, found := s.getToken(tid)
 	if !found {
 		return "", ErrInvalidTokenId
 	}
 
-	return uri.(string), nil
+	return td.uri, nil
 }
 
 func (s *basicNFT) SetTokenURI(tid TokenID, tURI TokenURI) (bool, error) {
-	// check for invalid TokenID
-	if !s.exists(tid) {
+	td, found := s.getToken(tid)
+	if !found {
 		return false, ErrInvalidTokenId
 	}
 
-	// check for the right owner
-	owner, err := s.OwnerOf(tid)
-	if err != nil {
-		return false, err
-	}
 	caller := runtime.PreviousRealm().Address()
-	if caller != owner {
+	if caller != td.owner {
 		return false, ErrCallerIsNotOwner
 	}
-	s.tokenURIs.Set(tid.String(), tURI.String())
+	td.uri = tURI.String()
+	s.tokens.Set(string(tid), td)
 	return true, nil
 }
 
@@ -109,26 +118,27 @@ func (s *basicNFT) Approve(to address, tid TokenID) error {
 		return err
 	}
 
-	owner, err := s.OwnerOf(tid)
-	if err != nil {
-		return err
+	td, found := s.getToken(tid)
+	if !found {
+		return ErrInvalidTokenId
 	}
-	if owner == to {
+	if td.owner == to {
 		return ErrApprovalToCurrentOwner
 	}
 
 	caller := runtime.PreviousRealm().Address()
-	if caller != owner && !s.IsApprovedForAll(owner, caller) {
+	if caller != td.owner && !s.IsApprovedForAll(td.owner, caller) {
 		return ErrCallerIsNotOwnerOrApproved
 	}
 
 	tidStr := tid.String()
-	s.tokenApprovals.Set(tidStr, to)
+	td.approved = to
+	s.tokens.Set(tidStr, td)
 
 	chain.Emit(
 		ApprovalEvent,
 		"slug", s.symbol,
-		"owner", owner.String(),
+		"owner", td.owner.String(),
 		"to", to.String(),
 		"tokenId", tidStr,
 	)
@@ -138,12 +148,15 @@ func (s *basicNFT) Approve(to address, tid TokenID) error {
 
 // GetApproved return the approved address for token
 func (s *basicNFT) GetApproved(tid TokenID) (address, error) {
-	addr, found := s.tokenApprovals.Get(tid.String())
+	td, found := s.getToken(tid)
 	if !found {
 		return zeroAddress, ErrTokenIdNotHasApproved
 	}
+	if td.approved == zeroAddress {
+		return zeroAddress, ErrTokenIdNotHasApproved
+	}
 
-	return addr.(address), nil
+	return td.approved, nil
 }
 
 // SetApprovalForAll can approve the operator to operate on all tokens
@@ -213,24 +226,23 @@ func (s *basicNFT) SafeMint(to address, tid TokenID) error {
 }
 
 func (s *basicNFT) Burn(tid TokenID) error {
-	owner, err := s.OwnerOf(tid)
-	if err != nil {
-		return err
+	td, found := s.getToken(tid)
+	if !found {
+		return ErrInvalidTokenId
 	}
 
-	s.beforeTokenTransfer(owner, zeroAddress, tid, 1)
+	s.beforeTokenTransfer(td.owner, zeroAddress, tid, 1)
 
 	tidStr := tid.String()
-	s.tokenApprovals.Remove(tidStr)
-	balance, err := s.BalanceOf(owner)
+	s.tokens.Remove(tidStr)
+	balance, err := s.BalanceOf(td.owner)
 	if err != nil {
 		return err
 	}
 	balance = overflow.Sub64p(balance, 1)
 
-	ownerStr := owner.String()
+	ownerStr := td.owner.String()
 	s.balances.Set(ownerStr, balance)
-	s.owners.Remove(tidStr)
 
 	chain.Emit(
 		BurnEvent,
@@ -239,7 +251,7 @@ func (s *basicNFT) Burn(tid TokenID) error {
 		"tokenId", tidStr,
 	)
 
-	s.afterTokenTransfer(owner, zeroAddress, tid, 1)
+	s.afterTokenTransfer(td.owner, zeroAddress, tid, 1)
 
 	return nil
 }
@@ -279,27 +291,31 @@ func (s *basicNFT) transfer(from, to address, tid TokenID) error {
 		return ErrCannotTransferToSelf
 	}
 
-	owner, err := s.OwnerOf(tid)
-	if err != nil {
-		return err
+	td, found := s.getToken(tid)
+	if !found {
+		return ErrInvalidTokenId
 	}
-	if owner != from {
+	if td.owner != from {
 		return ErrTransferFromIncorrectOwner
 	}
 
 	s.beforeTokenTransfer(from, to, tid, 1)
 
 	// Check that tokenId was not transferred by `beforeTokenTransfer`
-	owner, err = s.OwnerOf(tid)
-	if err != nil {
-		return err
+	td, found = s.getToken(tid)
+	if !found {
+		return ErrInvalidTokenId
 	}
-	if owner != from {
+	if td.owner != from {
 		return ErrTransferFromIncorrectOwner
 	}
 
-	tidStr := tid.String()
-	s.tokenApprovals.Remove(tidStr)
+	// Update token: new owner, clear approval
+	tidStr := string(tid)
+	td.owner = to
+	td.approved = zeroAddress
+	s.tokens.Set(tidStr, td)
+
 	fromBalance, err := s.BalanceOf(from)
 	if err != nil {
 		return err
@@ -316,7 +332,6 @@ func (s *basicNFT) transfer(from, to address, tid TokenID) error {
 
 	s.balances.Set(fromStr, fromBalance)
 	s.balances.Set(toStr, toBalance)
-	s.owners.Set(tidStr, to)
 
 	chain.Emit(
 		TransferEvent,
@@ -354,9 +369,9 @@ func (s *basicNFT) mint(to address, tid TokenID) error {
 	}
 	toBalance = overflow.Add64p(toBalance, 1)
 	toStr := to.String()
-	tidStr := tid.String()
+	tidStr := string(tid)
 	s.balances.Set(toStr, toBalance)
-	s.owners.Set(tidStr, to)
+	s.tokens.Set(tidStr, tokenData{owner: to})
 
 	chain.Emit(
 		MintEvent,
@@ -371,27 +386,21 @@ func (s *basicNFT) mint(to address, tid TokenID) error {
 }
 
 func (s *basicNFT) isApprovedOrOwner(addr address, tid TokenID) bool {
-	owner, found := s.owners.Get(tid.String())
+	td, found := s.getToken(tid)
 	if !found {
 		return false
 	}
 
-	ownerAddr := owner.(address)
-	if addr == ownerAddr || s.IsApprovedForAll(ownerAddr, addr) {
+	if addr == td.owner || s.IsApprovedForAll(td.owner, addr) {
 		return true
 	}
 
-	approved, err := s.GetApproved(tid)
-	if err != nil {
-		return false
-	}
-
-	return approved == addr
+	return td.approved == addr
 }
 
 // Checks if token id already exists
 func (s *basicNFT) exists(tid TokenID) bool {
-	_, found := s.owners.Get(tid.String())
+	_, found := s.tokens.Get(string(tid))
 	return found
 }
 
