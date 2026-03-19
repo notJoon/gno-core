@@ -1127,7 +1127,10 @@ func (rlm *Realm) assertTypeIsPublic(store Store, t Type, visited map[TypeID]str
 func getSelfOrChildObjects(val Value, more []Value) []Value {
 	if _, ok := val.(RefValue); ok {
 		return append(more, val)
-	} else if _, ok := val.(Object); ok {
+	} else if obj, ok := val.(Object); ok {
+		if av, isArr := obj.(*ArrayValue); isArr && shouldInlineArray(av) {
+			return more // skip — inlined in parent
+		}
 		return append(more, val)
 	} else {
 		return getChildObjects(val, more)
