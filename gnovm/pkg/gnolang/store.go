@@ -520,23 +520,42 @@ func (ds *defaultStore) loadObjectSafe(oid ObjectID) Object {
 // ArrayValues deserialized as part of a parent Object. This enables
 // DidUpdate to walk up to the real ancestor when array elements are
 // modified (e.g. z[0] = value in u256 arithmetic).
+//
+// In practice, nested StructValues are always separate Objects loaded
+// independently, so direct-field scanning suffices. The recursive
+// helper restoreInlineArrayOwnersTV is added defensively for any
+// non-Object value containers that may embed inline arrays.
 func restoreInlineArrayOwners(parent Object) {
 	switch pv := parent.(type) {
 	case *StructValue:
 		for i := range pv.Fields {
-			if av, ok := pv.Fields[i].V.(*ArrayValue); ok && shouldInlineArray(av) {
-				av.SetOwner(parent)
-			}
+			restoreInlineArrayOwnersTV(&pv.Fields[i], parent)
 		}
 	case *Block:
 		for i := range pv.Values {
-			if av, ok := pv.Values[i].V.(*ArrayValue); ok && shouldInlineArray(av) {
-				av.SetOwner(parent)
-			}
+			restoreInlineArrayOwnersTV(&pv.Values[i], parent)
 		}
 	case *HeapItemValue:
-		if av, ok := pv.Value.V.(*ArrayValue); ok && shouldInlineArray(av) {
-			av.SetOwner(parent)
+		restoreInlineArrayOwnersTV(&pv.Value, parent)
+	}
+}
+
+// restoreInlineArrayOwnersTV checks a single TypedValue for inline
+// arrays and recursively walks non-Object value containers.
+func restoreInlineArrayOwnersTV(tv *TypedValue, owner Object) {
+	switch cv := tv.V.(type) {
+	case *ArrayValue:
+		if shouldInlineArray(cv) {
+			cv.SetOwner(owner)
+		}
+	case *StructValue:
+		// StructValues that are separate Objects are stored as
+		// RefValues and loaded independently — they won't appear
+		// here. Only non-Object embedded structs reach this case.
+		if !cv.GetIsReal() && cv.GetObjectID().IsZero() {
+			for i := range cv.Fields {
+				restoreInlineArrayOwnersTV(&cv.Fields[i], owner)
+			}
 		}
 	}
 }

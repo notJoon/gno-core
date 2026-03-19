@@ -863,7 +863,7 @@ func (rlm *Realm) saveUnsavedObjectRecursively(store Store, oo Object, visited m
 				panic("cannot save new real existing object")
 			}
 		}
-		rlm.saveObject(store, oo, "created")
+		rlm.saveObject(store, oo, "updated")
 		oo.SetIsDirty(false, 0)
 	}
 }
