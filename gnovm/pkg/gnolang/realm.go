@@ -1127,10 +1127,7 @@ func (rlm *Realm) assertTypeIsPublic(store Store, t Type, visited map[TypeID]str
 func getSelfOrChildObjects(val Value, more []Value) []Value {
 	if _, ok := val.(RefValue); ok {
 		return append(more, val)
-	} else if obj, ok := val.(Object); ok {
-		if av, isArr := obj.(*ArrayValue); isArr && shouldInlineArray(av) {
-			return more // skip — inlined in parent
-		}
+	} else if _, ok := val.(Object); ok {
 		return append(more, val)
 	} else {
 		return getChildObjects(val, more)
@@ -1167,6 +1164,9 @@ func getChildObjects(val Value, more []Value) []Value {
 		return more
 	case *StructValue:
 		for _, ctv := range cv.Fields {
+			if av, ok := ctv.V.(*ArrayValue); ok && shouldInlineArray(av) {
+				continue // skip — inlined in parent struct
+			}
 			more = getSelfOrChildObjects(ctv.V, more)
 		}
 		return more
@@ -1198,6 +1198,9 @@ func getChildObjects(val Value, more []Value) []Value {
 		return more
 	case *Block:
 		for _, ctv := range cv.Values {
+			if av, ok := ctv.V.(*ArrayValue); ok && shouldInlineArray(av) {
+				continue // skip — inlined in parent block
+			}
 			more = getSelfOrChildObjects(ctv.V, more)
 		}
 		// Generally the parent block must also be persisted.
@@ -1206,6 +1209,9 @@ func getChildObjects(val Value, more []Value) []Value {
 		more = getSelfOrChildObjects(cv.Parent, more)
 		return more
 	case *HeapItemValue:
+		if av, ok := cv.Value.V.(*ArrayValue); ok && shouldInlineArray(av) {
+			return more // skip — inlined in parent heap item
+		}
 		more = getSelfOrChildObjects(cv.Value.V, more)
 		return more
 	default:
@@ -1412,6 +1418,9 @@ func copyValueWithRefs(val Value) Value {
 		if cv.Base == nil {
 			panic("should not happen")
 		}
+		if av, ok := cv.Base.(*ArrayValue); ok && shouldInlineArray(av) {
+			panic("cannot persist pointer to inline array; consider copying the value")
+		}
 		return PointerValue{
 			/*
 				already represented in .Base[Index]:
@@ -1440,6 +1449,9 @@ func copyValueWithRefs(val Value) Value {
 			}
 		}
 	case *SliceValue:
+		if av, ok := cv.Base.(*ArrayValue); ok && shouldInlineArray(av) {
+			panic("cannot persist slice of inline array; consider copying the value")
+		}
 		return &SliceValue{
 			Base:   toRefValue(cv.Base),
 			Offset: cv.Offset,
