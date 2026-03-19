@@ -1829,6 +1829,68 @@ func ensureUniq(oozz ...[]Object) {
 	}
 }
 
+// shouldInlineArray returns true if the given ArrayValue should be
+// serialized inline within its parent Object rather than as a
+// separate KV entry.
+//
+// Criteria:
+//   - NOT already persisted (real): existing KV entries are preserved
+//     for backwards compatibility. avl.Tree copy-on-write naturally
+//     migrates old entries to inline over time.
+//   - NOT escaped or multi-referenced: shared Objects need independent
+//     KV entries for correct Merkle proof and IAVL tracking.
+//   - Small (≤ 8 elements): prevents parent KV entry bloat.
+//   - All elements are primitives (non-Object): child Objects need
+//     independent ownership tracking.
+func shouldInlineArray(av *ArrayValue) bool {
+	// Already-persisted arrays retain separate KV entries.
+	if av.GetIsReal() {
+		return false
+	}
+	if av.GetIsEscaped() || av.GetIsNewEscaped() {
+		return false
+	}
+	if av.GetRefCount() > 1 {
+		return false
+	}
+	// Byte arrays using compact Data encoding.
+	if av.Data != nil {
+		return len(av.Data) <= 256
+	}
+	// Only inline small arrays (covers [4]uint64 = u256.Uint).
+	if len(av.List) > 8 {
+		return false
+	}
+	// Every element must be a non-Object primitive.
+	for _, tv := range av.List {
+		if _, isObj := tv.V.(Object); isObj {
+			return false
+		}
+	}
+	return true
+}
+
+// copyArrayInline creates a serialization-ready copy of an inline
+// ArrayValue. The copy has ZERO ObjectInfo — the signal that this
+// array is inlined in the parent and has no independent KV entry.
+func copyArrayInline(av *ArrayValue) *ArrayValue {
+	if av.Data != nil {
+		return &ArrayValue{
+			// ObjectInfo intentionally zero.
+			Data: cp(av.Data),
+		}
+	}
+	list := make([]TypedValue, len(av.List))
+	for i, etv := range av.List {
+		// Elements are guaranteed non-Object by shouldInlineArray.
+		list[i] = refOrCopyValue(etv)
+	}
+	return &ArrayValue{
+		// ObjectInfo intentionally zero.
+		List: list,
+	}
+}
+
 func refOrCopyValue(tv TypedValue) TypedValue {
 	if tv.T != nil {
 		tv.T = refOrCopyType(tv.T)
