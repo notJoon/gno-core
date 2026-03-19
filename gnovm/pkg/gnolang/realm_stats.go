@@ -135,3 +135,50 @@ func (l *realmStatsLogger) LogDetailedStats(s RealmStats, created, updated, dele
 		}
 	}
 }
+
+// LogObjectSizes writes per-object size breakdown for a realm.
+// Groups by (category, typeName) and shows aggregate + individual entries.
+func (l *realmStatsLogger) LogObjectSizes(realmPath string, entries []ObjectSizeEntry) {
+	if l == nil || l.w == nil || len(entries) == 0 {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// aggregate by category+type
+	type key struct {
+		category string
+		typeName string
+	}
+	type agg struct {
+		count     int
+		totalDiff int64
+		totalSize int64
+	}
+	groups := make(map[key]*agg)
+	for _, e := range entries {
+		k := key{e.Category, e.TypeName}
+		g, ok := groups[k]
+		if !ok {
+			g = &agg{}
+			groups[k] = g
+		}
+		g.count++
+		g.totalDiff += e.Diff
+		g.totalSize += e.TotalSize
+	}
+
+	fmt.Fprintf(l.w, "  [object-sizes] realm=%s (%d objects)\n", realmPath, len(entries))
+	for k, g := range groups {
+		fmt.Fprintf(l.w, "    %-10s %-20s count=%-4d diff=%+8d  total_kv_size=%8d  avg_size=%d\n",
+			k.category, k.typeName, g.count, g.totalDiff, g.totalSize, g.totalSize/int64(g.count))
+	}
+
+	// individual entries for top contributors (diff > 100 bytes or total > 500 bytes)
+	for _, e := range entries {
+		if e.Diff > 100 || e.Diff < -100 || e.TotalSize > 500 {
+			fmt.Fprintf(l.w, "    [detail] %-10s oid=%-30s type=%-20s diff=%+6d  kv_size=%6d\n",
+				e.Category, e.OID.String(), e.TypeName, e.Diff, e.TotalSize)
+		}
+	}
+}

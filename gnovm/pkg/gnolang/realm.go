@@ -137,6 +137,18 @@ type Realm struct {
 	updated []Object // real objects that were modified.
 	deleted []Object // real objects that became deleted.
 	escaped []Object // real objects with refcount > 1.
+
+	// per-object size tracking for diagnostics
+	objectSizes []ObjectSizeEntry
+}
+
+// ObjectSizeEntry records the size info for a single saved/deleted object.
+type ObjectSizeEntry struct {
+	OID      ObjectID
+	TypeName string
+	Diff     int64 // size change from SetObject (positive) or DelObject (negative)
+	TotalSize int64 // LastObjectSize after save (absolute size in KV)
+	Category string // "created", "updated", "ancestor", "deleted"
 }
 
 // Creates a blank new realm with counter 0.
@@ -401,6 +413,8 @@ func (rlm *Realm) FinalizeRealmTransaction(store Store) {
 			BytesDiff: rlm.sumDiff,
 		}
 		logger.LogDetailedStats(stats, rlm.created, rlm.updated, rlm.deleted)
+		logger.LogObjectSizes(rlm.Path, rlm.objectSizes)
+		rlm.objectSizes = rlm.objectSizes[:0]
 	}
 
 	// reset realm state for new transaction.
@@ -765,7 +779,7 @@ func (rlm *Realm) saveUnsavedObjects(store Store) {
 				// No recursive save needed; child objects were already
 				// persisted via created objects.
 				rlm.assertObjectIsPublic(uo, store, tids)
-				rlm.saveObject(store, uo)
+				rlm.saveObject(store, uo, "updated")
 				uo.SetIsDirty(false, 0)
 			}
 		}
@@ -818,7 +832,7 @@ func (rlm *Realm) saveUnsavedObjectRecursively(store Store, oo Object, visited m
 				panic("cannot save dirty new real object")
 			}
 		}
-		rlm.saveObject(store, oo)
+		rlm.saveObject(store, oo, "created")
 		oo.SetIsNewReal(false)
 	} else {
 		// update existing object.
@@ -833,12 +847,12 @@ func (rlm *Realm) saveUnsavedObjectRecursively(store Store, oo Object, visited m
 				panic("cannot save new real existing object")
 			}
 		}
-		rlm.saveObject(store, oo)
+		rlm.saveObject(store, oo, "created")
 		oo.SetIsDirty(false, 0)
 	}
 }
 
-func (rlm *Realm) saveObject(store Store, oo Object) {
+func (rlm *Realm) saveObject(store Store, oo Object, category string) {
 	oid := oo.GetObjectID()
 	if oid.IsZero() {
 		panic("unexpected zero object id")
@@ -852,7 +866,19 @@ func (rlm *Realm) saveObject(store Store, oo Object) {
 
 	// set object to store.
 	// NOTE: also sets the hash to object.
-	rlm.sumDiff += store.SetObject(oo)
+	diff := store.SetObject(oo)
+	rlm.sumDiff += diff
+
+	// record per-object size for diagnostics
+	if store.GetRealmStatsLogger() != nil {
+		rlm.objectSizes = append(rlm.objectSizes, ObjectSizeEntry{
+			OID:       oid,
+			TypeName:  objectTypeName(oo),
+			Diff:      diff,
+			TotalSize: oo.GetObjectInfo().LastObjectSize,
+			Category:  category,
+		})
+	}
 }
 
 //----------------------------------------
@@ -877,7 +903,19 @@ func (rlm *Realm) saveNewEscaped(store Store) {
 
 func (rlm *Realm) removeDeletedObjects(store Store) {
 	for _, do := range rlm.deleted {
-		rlm.sumDiff -= store.DelObject(do)
+		size := store.DelObject(do)
+		rlm.sumDiff -= size
+
+		// record per-object deletion size for diagnostics
+		if store.GetRealmStatsLogger() != nil {
+			rlm.objectSizes = append(rlm.objectSizes, ObjectSizeEntry{
+				OID:       do.GetObjectID(),
+				TypeName:  objectTypeName(do),
+				Diff:      -size,
+				TotalSize: 0,
+				Category:  "deleted",
+			})
+		}
 	}
 }
 
