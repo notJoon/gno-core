@@ -1893,9 +1893,11 @@ func shouldInlineArray(av *ArrayValue) bool {
 	if len(av.List) > 8 {
 		return false
 	}
-	// Every element must be a non-Object primitive.
+	// Every element must be a pure primitive (V == nil, value in N).
+	// Non-nil V can be PointerValue, SliceValue, etc. which hold
+	// Object references that need independent ownership tracking.
 	for _, tv := range av.List {
-		if _, isObj := tv.V.(Object); isObj {
+		if tv.V != nil {
 			return false
 		}
 	}
