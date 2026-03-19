@@ -1155,7 +1155,15 @@ func getChildObjects(val Value, more []Value) []Value {
 		if cv.Base == nil {
 			panic("should not happen")
 		}
-		more = getSelfOrChildObjects(cv.Base, more)
+		// Pointer/slice bases are referenced by ObjectID in
+		// serialization (toRefValue), so they MUST remain real
+		// Objects. Bypass getSelfOrChildObjects to avoid the
+		// inline array skip — these arrays cannot be inlined.
+		if ref, ok := cv.Base.(RefValue); ok {
+			more = append(more, ref)
+		} else if obj, ok := cv.Base.(Object); ok {
+			more = append(more, obj)
+		}
 		return more
 	case *ArrayValue:
 		for _, ctv := range cv.List {
@@ -1163,7 +1171,12 @@ func getChildObjects(val Value, more []Value) []Value {
 		}
 		return more
 	case *SliceValue:
-		more = getSelfOrChildObjects(cv.Base, more)
+		// Same rationale as PointerValue above.
+		if ref, ok := cv.Base.(RefValue); ok {
+			more = append(more, ref)
+		} else if obj, ok := cv.Base.(Object); ok {
+			more = append(more, obj)
+		}
 		return more
 	case *StructValue:
 		for _, ctv := range cv.Fields {
@@ -1412,9 +1425,6 @@ func copyValueWithRefs(val Value) Value {
 		if cv.Base == nil {
 			panic("should not happen")
 		}
-		if av, ok := cv.Base.(*ArrayValue); ok && shouldInlineArray(av) {
-			panic("cannot persist pointer to inline array; consider copying the value")
-		}
 		return PointerValue{
 			/*
 				already represented in .Base[Index]:
@@ -1443,9 +1453,6 @@ func copyValueWithRefs(val Value) Value {
 			}
 		}
 	case *SliceValue:
-		if av, ok := cv.Base.(*ArrayValue); ok && shouldInlineArray(av) {
-			panic("cannot persist slice of inline array; consider copying the value")
-		}
 		return &SliceValue{
 			Base:   toRefValue(cv.Base),
 			Offset: cv.Offset,
