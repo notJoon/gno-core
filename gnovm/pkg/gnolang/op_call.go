@@ -266,31 +266,6 @@ func (m *Machine) isRealmBoundary(cfr *Frame) bool {
 // NOTE: resource intensive
 func (m *Machine) maybeFinalize(cfr *Frame) {
 	if m.isRealmBoundary(cfr) {
-		// Log finalize trigger details if realm stats logger is active.
-		if logger := m.Store.GetRealmStatsLogger(); logger != nil {
-			funcName := "<unknown>"
-			if cfr.Func != nil {
-				funcName = string(cfr.Func.Name)
-				if cfr.Func.PkgPath != "" {
-					funcName = cfr.Func.PkgPath + "." + funcName
-				}
-			}
-			realmPath := ""
-			if m.Realm != nil {
-				realmPath = m.Realm.Path
-			}
-			prevRealm := ""
-			if cfr.LastRealm != nil {
-				prevRealm = cfr.LastRealm.Path
-			}
-			reason := "machine_exit"
-			if cfr.WithCross {
-				reason = "explicit_cross"
-			} else if m.Realm != nil && cfr.LastRealm != nil && m.Realm != cfr.LastRealm {
-				reason = "implicit_cross"
-			}
-			logger.LogFinalizeTrigger(realmPath, funcName, reason, prevRealm)
-		}
 		m.Realm.FinalizeRealmTransaction(m.Store)
 	}
 }

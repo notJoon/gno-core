@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"maps"
 	"path"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -122,12 +121,6 @@ func (vm *VMKeeper) Initialize(
 	alloc := gno.NewAllocator(maxAllocTx)
 	vm.gnoStore = gno.NewStore(alloc, baseStore, iavlStore)
 	vm.gnoStore.SetNativeResolver(stdlibs.NativeResolver)
-
-	// Enable realm stats logging if GNO_REALM_STATS_LOG is set.
-	// Values: "stdout", "stderr", or a file path.
-	if statsPath := os.Getenv("GNO_REALM_STATS_LOG"); statsPath != "" {
-		vm.gnoStore.SetRealmStatsLogger(gno.NewRealmStatsLogger(statsPath))
-	}
 
 	if vm.gnoStore.NumMemPackages() > 0 {
 		// for now, all mem packages must be re-run after reboot.
@@ -517,9 +510,6 @@ func (vm *VMKeeper) AddPackage(ctx sdk.Context, msg MsgAddPackage) (err error) {
 	send := msg.Send
 	maxDeposit := msg.MaxDeposit
 	gnostore := vm.getGnoTransactionStore(ctx)
-	if logger := gnostore.GetRealmStatsLogger(); logger != nil {
-		logger.LogSeparator(fmt.Sprintf("AddPackage %s", pkgPath))
-	}
 	chainDomain := vm.getChainDomainParam(ctx)
 
 	memPkg.Type = gno.MPUserAll
@@ -672,9 +662,6 @@ func (vm *VMKeeper) Call(ctx sdk.Context, msg MsgCall) (res string, err error) {
 	pkgPath := msg.PkgPath // to import
 	fnc := msg.Func
 	gnostore := vm.getGnoTransactionStore(ctx)
-	if logger := gnostore.GetRealmStatsLogger(); logger != nil {
-		logger.LogSeparator(fmt.Sprintf("Call %s.%s", pkgPath, fnc))
-	}
 	// Get the package and function type.
 	pv := gnostore.GetPackage(pkgPath, false)
 	pl := gno.PackageNodeLocation(pkgPath)

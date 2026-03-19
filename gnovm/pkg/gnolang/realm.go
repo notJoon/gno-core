@@ -137,18 +137,6 @@ type Realm struct {
 	updated []Object // real objects that were modified.
 	deleted []Object // real objects that became deleted.
 	escaped []Object // real objects with refcount > 1.
-
-	// per-object size tracking for diagnostics
-	objectSizes []ObjectSizeEntry
-}
-
-// ObjectSizeEntry records the size info for a single saved/deleted object.
-type ObjectSizeEntry struct {
-	OID      ObjectID
-	TypeName string
-	Diff     int64 // size change from SetObject (positive) or DelObject (negative)
-	TotalSize int64 // LastObjectSize after save (absolute size in KV)
-	Category string // "created", "updated", "ancestor", "deleted"
 }
 
 // Creates a blank new realm with counter 0.
@@ -433,9 +421,7 @@ func (rlm *Realm) FinalizeRealmTransaction(store Store) {
 	rlm.processNewEscapedMarks(store, 0)
 	// given created and updated objects,
 	// mark all owned-ancestors also as dirty.
-	updatedBeforeAncestors := len(rlm.updated)
 	rlm.markDirtyAncestors(store)
-	ancestorCount := len(rlm.updated) - updatedBeforeAncestors
 	if debugRealm {
 		ensureUniq(rlm.created, rlm.updated)
 		ensureUniq(rlm.escaped)
@@ -449,22 +435,6 @@ func (rlm *Realm) FinalizeRealmTransaction(store Store) {
 	rlm.saveNewEscaped(store)
 	// delete all deleted objects.
 	rlm.removeDeletedObjects(store)
-
-	// Log realm stats before clearing marks.
-	if logger := store.GetRealmStatsLogger(); logger != nil {
-		stats := RealmStats{
-			Path:      rlm.Path,
-			Created:   len(rlm.created),
-			Updated:   updatedBeforeAncestors,
-			Ancestors: ancestorCount,
-			Deleted:   len(rlm.deleted),
-			BytesDiff: rlm.sumDiff,
-		}
-		logger.LogDetailedStats(stats, rlm.created, rlm.updated, rlm.deleted)
-		logger.LogObjectSizes(rlm.Path, rlm.objectSizes)
-		rlm.objectSizes = rlm.objectSizes[:0]
-	}
-
 	// reset realm state for new transaction.
 	rlm.clearMarks()
 
@@ -827,7 +797,7 @@ func (rlm *Realm) saveUnsavedObjects(store Store) {
 				// No recursive save needed; child objects were already
 				// persisted via created objects.
 				rlm.assertObjectIsPublic(uo, store, tids)
-				rlm.saveObject(store, uo, "updated")
+				rlm.saveObject(store, uo)
 				uo.SetIsDirty(false, 0)
 			}
 		}
@@ -880,7 +850,7 @@ func (rlm *Realm) saveUnsavedObjectRecursively(store Store, oo Object, visited m
 				panic("cannot save dirty new real object")
 			}
 		}
-		rlm.saveObject(store, oo, "created")
+		rlm.saveObject(store, oo)
 		oo.SetIsNewReal(false)
 	} else {
 		// update existing object.
@@ -895,12 +865,12 @@ func (rlm *Realm) saveUnsavedObjectRecursively(store Store, oo Object, visited m
 				panic("cannot save new real existing object")
 			}
 		}
-		rlm.saveObject(store, oo, "updated")
+		rlm.saveObject(store, oo)
 		oo.SetIsDirty(false, 0)
 	}
 }
 
-func (rlm *Realm) saveObject(store Store, oo Object, category string) {
+func (rlm *Realm) saveObject(store Store, oo Object) {
 	oid := oo.GetObjectID()
 	if oid.IsZero() {
 		panic("unexpected zero object id")
@@ -914,19 +884,7 @@ func (rlm *Realm) saveObject(store Store, oo Object, category string) {
 
 	// set object to store.
 	// NOTE: also sets the hash to object.
-	diff := store.SetObject(oo)
-	rlm.sumDiff += diff
-
-	// record per-object size for diagnostics
-	if store.GetRealmStatsLogger() != nil {
-		rlm.objectSizes = append(rlm.objectSizes, ObjectSizeEntry{
-			OID:       oid,
-			TypeName:  objectTypeName(oo),
-			Diff:      diff,
-			TotalSize: oo.GetObjectInfo().LastObjectSize,
-			Category:  category,
-		})
-	}
+	rlm.sumDiff += store.SetObject(oo)
 }
 
 //----------------------------------------
@@ -951,19 +909,7 @@ func (rlm *Realm) saveNewEscaped(store Store) {
 
 func (rlm *Realm) removeDeletedObjects(store Store) {
 	for _, do := range rlm.deleted {
-		size := store.DelObject(do)
-		rlm.sumDiff -= size
-
-		// record per-object deletion size for diagnostics
-		if store.GetRealmStatsLogger() != nil {
-			rlm.objectSizes = append(rlm.objectSizes, ObjectSizeEntry{
-				OID:       do.GetObjectID(),
-				TypeName:  objectTypeName(do),
-				Diff:      -size,
-				TotalSize: 0,
-				Category:  "deleted",
-			})
-		}
+		rlm.sumDiff -= store.DelObject(do)
 	}
 }
 
