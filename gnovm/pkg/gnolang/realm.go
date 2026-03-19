@@ -249,6 +249,16 @@ func (rlm *Realm) DidUpdate(po, xo, co Object) {
 		if co.GetIsReal() {
 			rlm.MarkDirty(co)
 		} else {
+			// If the object was previously owned by a different
+			// real parent (e.g. an inline array inside a
+			// HeapItemValue that is now being referenced by a
+			// MapValue via PointerValue.Base), the old parent
+			// must be resaved to replace the stale inline copy
+			// with a RefValue.
+			prevOwner := co.GetOwner()
+			if prevOwner != nil && prevOwner != po && prevOwner.GetIsReal() {
+				rlm.MarkDirty(prevOwner)
+			}
 			co.SetOwner(po)
 			rlm.MarkNewReal(co)
 		}
@@ -394,6 +404,16 @@ func (rlm *Realm) FinalizeRealmTransaction(store Store) {
 	// increment recursively for created descendants.
 	// also assigns object ids for all.
 	rlm.processNewCreatedMarks(store, 0)
+	// Restore owner pointers for inline arrays within newly created
+	// objects. This is needed so that DidUpdate (during init or main)
+	// can walk up from an inline array to its real ancestor, AND so
+	// that if the inline array later gets MarkNewReal (e.g. via
+	// &arr[i] stored in a map), we can detect and dirty-mark the
+	// previous parent. restoreInlineArrayOwners is also called from
+	// loadObjectSafe for objects loaded from store.
+	for _, co := range rlm.created {
+		restoreInlineArrayOwners(co)
+	}
 	// decrement recursively for deleted descendants.
 	rlm.processNewDeletedMarks(store)
 	// at this point, all ref-counts are final.
