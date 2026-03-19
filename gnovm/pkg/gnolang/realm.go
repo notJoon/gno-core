@@ -206,8 +206,24 @@ func (rlm *Realm) DidUpdate(po, xo, co Object) {
 			panic("cannot attach to a deleted object")
 		}
 	}
-	if po == nil || !po.GetIsReal() {
-		return // do nothing.
+	if po == nil {
+		return
+	}
+	if !po.GetIsReal() {
+		// Phantom inline array: walk up ownership chain to the
+		// nearest real ancestor and mark it dirty. This handles
+		// element-level assignment (e.g. z[0] = value in u256.Add)
+		// where pv.Base is the ArrayValue, not the parent struct.
+		if av, ok := po.(*ArrayValue); ok && shouldInlineArray(av) {
+			ancestor := av.GetOwner()
+			for ancestor != nil && !ancestor.GetIsReal() {
+				ancestor = ancestor.GetOwner()
+			}
+			if ancestor != nil && ancestor.GetObjectID().PkgID == rlm.ID {
+				rlm.MarkDirty(ancestor)
+			}
+		}
+		return
 	}
 	if po.GetObjectID().PkgID != rlm.ID {
 		panic(&Exception{Value: typedString("cannot modify external-realm or non-realm object")})
