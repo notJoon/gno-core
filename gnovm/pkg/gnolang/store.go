@@ -537,21 +537,35 @@ func restoreInlineArrayOwners(parent Object) {
 		}
 	case *HeapItemValue:
 		restoreInlineArrayOwnersTV(&pv.Value, parent)
+	case *MapValue:
+		for cur := pv.List.Head; cur != nil; cur = cur.Next {
+			restoreInlineArrayOwnersTV(&cur.Key, parent)
+			restoreInlineArrayOwnersTV(&cur.Value, parent)
+		}
+	case *ArrayValue:
+		// Non-inline Object array whose elements may contain
+		// inline arrays (e.g. [2][4]uint64).
+		for i := range pv.List {
+			restoreInlineArrayOwnersTV(&pv.List[i], parent)
+		}
 	}
 }
 
 // restoreInlineArrayOwnersTV checks a single TypedValue for inline
 // arrays and recursively walks non-Object value containers.
+// Object values (real StructValue, MapValue, etc.) are loaded
+// independently via loadObjectSafe and handled there.
 func restoreInlineArrayOwnersTV(tv *TypedValue, owner Object) {
 	switch cv := tv.V.(type) {
 	case *ArrayValue:
 		if shouldInlineArray(cv) {
 			cv.SetOwner(owner)
 		}
+		// Non-inline arrays are separate Objects — skip.
 	case *StructValue:
-		// StructValues that are separate Objects are stored as
-		// RefValues and loaded independently — they won't appear
-		// here. Only non-Object embedded structs reach this case.
+		// Only non-Object embedded structs (zero ObjectID).
+		// Real StructValues are stored as RefValues and loaded
+		// independently via loadObjectSafe.
 		if !cv.GetIsReal() && cv.GetObjectID().IsZero() {
 			for i := range cv.Fields {
 				restoreInlineArrayOwnersTV(&cv.Fields[i], owner)
