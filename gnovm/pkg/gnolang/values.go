@@ -230,6 +230,13 @@ func (pv PointerValue) Assign2(alloc *Allocator, store Store, rlm *Realm, tv2 Ty
 		pv.TV.Assign(alloc, tv2, cu)
 		oo2 := pv.TV.GetFirstObject(store)
 		rlm.DidUpdate(pv.Base.(Object), oo1, oo2)
+		// Set owner on newly-assigned inline arrays so that
+		// element-level DidUpdate can walk up to the real ancestor.
+		if baseObj, ok := pv.Base.(Object); ok && baseObj.GetIsReal() {
+			if av, ok := pv.TV.V.(*ArrayValue); ok && shouldInlineArray(av) {
+				av.SetOwner(baseObj)
+			}
+		}
 	} else {
 		pv.TV.Assign(alloc, tv2, cu)
 	}

@@ -1915,6 +1915,10 @@ func refOrCopyValue(tv TypedValue) TypedValue {
 		tv.T = refOrCopyType(tv.T)
 	}
 	if obj, ok := tv.V.(Object); ok {
+		if av, isArr := obj.(*ArrayValue); isArr && shouldInlineArray(av) {
+			tv.V = copyArrayInline(av)
+			return tv
+		}
 		tv.V = toRefValue(obj)
 		return tv
 	} else {

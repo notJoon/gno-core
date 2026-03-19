@@ -373,6 +373,9 @@ func (tv *TypedValue) GetFirstObject(store Store) Object {
 	case PointerValue:
 		return cv.GetBase(store)
 	case *ArrayValue:
+		if shouldInlineArray(cv) {
+			return nil
+		}
 		return cv
 	case *SliceValue:
 		return cv.GetBase(store)
