@@ -210,17 +210,29 @@ func (rlm *Realm) DidUpdate(po, xo, co Object) {
 		return
 	}
 	if !po.GetIsReal() {
-		// Phantom inline array: walk up ownership chain to the
-		// nearest real ancestor and mark it dirty. This handles
-		// element-level assignment (e.g. z[0] = value in u256.Add)
-		// where pv.Base is the ArrayValue, not the parent struct.
-		if av, ok := po.(*ArrayValue); ok && shouldInlineArray(av) {
-			ancestor := av.GetOwner()
+		// Non-real object with an owner: it was previously saved
+		// inline within a real parent (via restoreInlineArrayOwners).
+		// Walk up the ownership chain to the nearest real ancestor
+		// and mark it dirty so it gets resaved.
+		if owner := po.GetOwner(); owner != nil {
+			ancestor := owner
 			for ancestor != nil && !ancestor.GetIsReal() {
 				ancestor = ancestor.GetOwner()
 			}
 			if ancestor != nil && ancestor.GetObjectID().PkgID == rlm.ID {
 				rlm.MarkDirty(ancestor)
+			}
+			// If the array was inline but can no longer be (e.g.
+			// gained non-primitive elements like PointerValues),
+			// promote it to a real object so it can be saved as
+			// a separate KV entry. Its children (co/xo) will be
+			// discovered during processNewCreatedMarks via
+			// incRefCreatedDescendants.
+			if av, ok := po.(*ArrayValue); ok {
+				if !shouldInlineArray(av) && !po.GetIsNewReal() {
+					po.IncRefCount() // referenced by its parent
+					rlm.MarkNewReal(po)
+				}
 			}
 		}
 		return
