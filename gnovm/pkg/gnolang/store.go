@@ -509,9 +509,36 @@ func (ds *defaultStore) loadObjectSafe(oid ObjectID) Object {
 		ds.cacheObjects[oid] = oo
 		oo.GetObjectInfo().LastObjectSize = int64(size)
 		_ = fillTypesOfValue(ds, oo)
+		// Restore owner for inline arrays after deserialization.
+		restoreInlineArrayOwners(oo)
 		return oo
 	}
 	return nil
+}
+
+// restoreInlineArrayOwners sets the runtime owner field for inline
+// ArrayValues deserialized as part of a parent Object. This enables
+// DidUpdate to walk up to the real ancestor when array elements are
+// modified (e.g. z[0] = value in u256 arithmetic).
+func restoreInlineArrayOwners(parent Object) {
+	switch pv := parent.(type) {
+	case *StructValue:
+		for i := range pv.Fields {
+			if av, ok := pv.Fields[i].V.(*ArrayValue); ok && shouldInlineArray(av) {
+				av.SetOwner(parent)
+			}
+		}
+	case *Block:
+		for i := range pv.Values {
+			if av, ok := pv.Values[i].V.(*ArrayValue); ok && shouldInlineArray(av) {
+				av.SetOwner(parent)
+			}
+		}
+	case *HeapItemValue:
+		if av, ok := pv.Value.V.(*ArrayValue); ok && shouldInlineArray(av) {
+			av.SetOwner(parent)
+		}
+	}
 }
 
 func (ds *defaultStore) fillPackage(pv *PackageValue) {
