@@ -538,9 +538,11 @@ func restoreInlineArrayOwners(parent Object) {
 	case *HeapItemValue:
 		restoreInlineArrayOwnersTV(&pv.Value, parent)
 	case *MapValue:
-		for cur := pv.List.Head; cur != nil; cur = cur.Next {
-			restoreInlineArrayOwnersTV(&cur.Key, parent)
-			restoreInlineArrayOwnersTV(&cur.Value, parent)
+		if pv.List != nil {
+			for cur := pv.List.Head; cur != nil; cur = cur.Next {
+				restoreInlineArrayOwnersTV(&cur.Key, parent)
+				restoreInlineArrayOwnersTV(&cur.Value, parent)
+			}
 		}
 	case *ArrayValue:
 		// Non-inline Object array whose elements may contain
@@ -560,8 +562,17 @@ func restoreInlineArrayOwnersTV(tv *TypedValue, owner Object) {
 	case *ArrayValue:
 		if shouldInlineArray(cv) {
 			cv.SetOwner(owner)
+			return
 		}
-		// Non-inline arrays are separate Objects — skip.
+		// Non-inline Object array — recurse into elements in case
+		// they contain inline arrays (e.g. [2][4]uint64 where the
+		// inner arrays are inline). Only for non-Object embedded
+		// arrays (zero ObjectID); real arrays are loaded independently.
+		if !cv.GetIsReal() && cv.GetObjectID().IsZero() {
+			for i := range cv.List {
+				restoreInlineArrayOwnersTV(&cv.List[i], owner)
+			}
+		}
 	case *StructValue:
 		// Only non-Object embedded structs (zero ObjectID).
 		// Real StructValues are stored as RefValues and loaded
@@ -569,6 +580,15 @@ func restoreInlineArrayOwnersTV(tv *TypedValue, owner Object) {
 		if !cv.GetIsReal() && cv.GetObjectID().IsZero() {
 			for i := range cv.Fields {
 				restoreInlineArrayOwnersTV(&cv.Fields[i], owner)
+			}
+		}
+	case *MapValue:
+		// Only non-Object embedded maps (zero ObjectID).
+		// Real MapValues are loaded independently via loadObjectSafe.
+		if !cv.GetIsReal() && cv.GetObjectID().IsZero() && cv.List != nil {
+			for cur := cv.List.Head; cur != nil; cur = cur.Next {
+				restoreInlineArrayOwnersTV(&cur.Key, owner)
+				restoreInlineArrayOwnersTV(&cur.Value, owner)
 			}
 		}
 	}
