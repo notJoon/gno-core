@@ -384,7 +384,7 @@ func (rlm *Realm) FinalizeRealmTransaction(store Store) {
 	// hash calculation is done along the way,
 	// or via escaped-object persistence in
 	// the iavl tree.
-	rlm.saveUnsavedObjects(store)
+	rlm.saveUnsavedObjects(store, updatedBeforeAncestors)
 	// TODO saved newly escaped to iavl.
 	rlm.saveNewEscaped(store)
 	// delete all deleted objects.
@@ -738,7 +738,7 @@ func (rlm *Realm) markDirtyAncestors(store Store) {
 // saveUnsavedObjects
 
 // Saves .created and .updated objects.
-func (rlm *Realm) saveUnsavedObjects(store Store) {
+func (rlm *Realm) saveUnsavedObjects(store Store, updatedBeforeAncestors int) {
 	tids := make(map[TypeID]struct{})
 	for _, co := range rlm.created {
 		// for i := len(rlm.created) - 1; i >= 0; i-- {
@@ -753,7 +753,7 @@ func (rlm *Realm) saveUnsavedObjects(store Store) {
 			}
 		}
 	}
-	for _, uo := range rlm.updated {
+	for i, uo := range rlm.updated {
 		// for i := len(rlm.updated) - 1; i >= 0; i-- {
 		// uo := rlm.updated[i]
 		if !uo.GetIsDirty() {
@@ -762,10 +762,14 @@ func (rlm *Realm) saveUnsavedObjects(store Store) {
 			continue
 		} else {
 			if !uo.GetIsDeleted() {
+				op := "update"
+				if i >= updatedBeforeAncestors {
+					op = "ancestor"
+				}
 				// No recursive save needed; child objects were already
 				// persisted via created objects.
 				rlm.assertObjectIsPublic(uo, store, tids)
-				rlm.saveObject(store, uo)
+				rlm.saveObject(store, uo, op)
 				uo.SetIsDirty(false, 0)
 			}
 		}
@@ -818,7 +822,7 @@ func (rlm *Realm) saveUnsavedObjectRecursively(store Store, oo Object, visited m
 				panic("cannot save dirty new real object")
 			}
 		}
-		rlm.saveObject(store, oo)
+		rlm.saveObject(store, oo, "create")
 		oo.SetIsNewReal(false)
 	} else {
 		// update existing object.
@@ -833,12 +837,12 @@ func (rlm *Realm) saveUnsavedObjectRecursively(store Store, oo Object, visited m
 				panic("cannot save new real existing object")
 			}
 		}
-		rlm.saveObject(store, oo)
+		rlm.saveObject(store, oo, "update")
 		oo.SetIsDirty(false, 0)
 	}
 }
 
-func (rlm *Realm) saveObject(store Store, oo Object) {
+func (rlm *Realm) saveObject(store Store, oo Object, op string) {
 	oid := oo.GetObjectID()
 	if oid.IsZero() {
 		panic("unexpected zero object id")
@@ -852,7 +856,13 @@ func (rlm *Realm) saveObject(store Store, oo Object) {
 
 	// set object to store.
 	// NOTE: also sets the hash to object.
-	rlm.sumDiff += store.SetObject(oo)
+	diff := store.SetObject(oo)
+	rlm.sumDiff += diff
+
+	// per-object cost logging
+	if logger := store.GetRealmStatsLogger(); logger != nil {
+		logger.LogObjectCost(rlm.Path, op, store, oo, diff, rlm.sumDiff)
+	}
 }
 
 //----------------------------------------
@@ -876,8 +886,13 @@ func (rlm *Realm) saveNewEscaped(store Store) {
 // removeDeletedObjects
 
 func (rlm *Realm) removeDeletedObjects(store Store) {
+	logger := store.GetRealmStatsLogger()
 	for _, do := range rlm.deleted {
-		rlm.sumDiff -= store.DelObject(do)
+		freed := store.DelObject(do)
+		rlm.sumDiff -= freed
+		if logger != nil {
+			logger.LogObjectCost(rlm.Path, "delete", store, do, -freed, rlm.sumDiff)
+		}
 	}
 }
 
