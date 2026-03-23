@@ -21,6 +21,9 @@ Usage:
     # Analyze the Nth occurrence of a pattern (default: 1st):
     python3 analyze_object_costs.py <logfile> "position.Mint" --nth 2
 
+    # Show per-struct-field breakdown (which field in Pool drives cost):
+    python3 analyze_object_costs.py <logfile> "position.Mint" --by-field
+
 Generating the log:
     GNO_REALM_STATS_LOG=/tmp/realm_stats.log go test -v -run 'TestTestdata/your_test' ./gno.land/pkg/integration/ -count=1
     GNO_REALM_STATS_LOG=stderr go test -run 'TestFiles/zrealm_avl0' ./gnovm/pkg/gnolang/ -v -count=1
@@ -213,6 +216,136 @@ def extract_root_var(label):
     return m.group(1) if m else "(unknown)"
 
 
+def extract_field_path(label):
+    """Extract field_path=<path> from the label string.
+    Returns the raw path like '[11](avl.Tree).[1](pool.TickInfo).[0](uint256.Uint)'
+    or '' if not present."""
+    m = re.search(r'field_path=(\S+)', label)
+    return m.group(1) if m else ""
+
+
+def classify_field_path(field_path):
+    """Classify a raw field_path into a human-readable struct field category.
+
+    Looks for known type patterns in the path to identify which Pool sub-structure
+    the object belongs to. Returns a short label like 'ticks', 'positions', etc.
+
+    For non-Pool objects, extracts the most informative type from the path.
+    """
+    if not field_path:
+        return "(no path)"
+
+    # Pool struct sub-field classification based on type signatures
+    pool_field_patterns = [
+        ("pool.TickInfo", "ticks"),
+        ("pool.PositionInfo", "positions"),
+        ("pool.ObservationState", "observationState"),
+        ("pool.Observation", "observationState"),
+        ("pool.Slot0", "slot0"),
+        ("pool.Balances", "balances"),
+        ("pool.ProtocolFees", "protocolFees"),
+    ]
+    for pattern, label in pool_field_patterns:
+        if pattern in field_path:
+            return label
+
+    # GRC20/GRC721 field classification
+    grc_patterns = [
+        ("grc20.Token", "grc20"),
+        ("grc721.", "grc721"),
+    ]
+    for pattern, label in grc_patterns:
+        if pattern in field_path:
+            return label
+
+    # Extract the outermost type hint from [index](TypeName) pattern
+    type_hints = re.findall(r'\(([^)]+)\)', field_path)
+    if type_hints:
+        # Use the first (outermost) type hint
+        outer_type = type_hints[0]
+        # Shorten: remove package prefix for readability
+        short = outer_type.rsplit("/", 1)[-1] if "/" in outer_type else outer_type
+        # Strip 'gno.land/...' prefix further
+        short = short.rsplit(".", 1)[-1] if "." in short else short
+        return short
+
+    # Fallback: return the raw index pattern
+    idx_match = re.match(r'\[(\d+)\]', field_path)
+    if idx_match:
+        return f"field[{idx_match.group(1)}]"
+
+    return field_path
+
+
+def print_by_field(sections):
+    """Group objects by (realm, root_var, field_category) and show cost breakdown.
+
+    This reveals which specific struct field (e.g., ticks vs positions vs observationState)
+    drives the most cost within a root variable like pool.kvStore.
+    """
+    field_costs = defaultdict(lambda: {
+        "create": 0, "update": 0, "ancestor": 0, "delete": 0,
+        "count": 0, "abs": 0, "types": defaultdict(int)
+    })
+
+    for s in sections:
+        sr = short_realm(s["realm"])
+        for o in s["objs"]:
+            root = extract_root_var(o["label"])
+            fp = extract_field_path(o["label"])
+            category = classify_field_path(fp)
+            key = (sr, root, category)
+            field_costs[key][o["op"]] += o["diff"]
+            field_costs[key]["count"] += 1
+            field_costs[key]["abs"] += abs(o["diff"])
+            field_costs[key]["types"][o["type"]] += 1
+
+    # Group by realm.root_var for display
+    by_root = defaultdict(list)
+    for (realm, root, cat), costs in field_costs.items():
+        net = costs["create"] + costs["update"] + costs["ancestor"] + costs["delete"]
+        by_root[f"{realm}.{root}"].append((cat, costs, net))
+
+    print(f"\n{'=' * 120}")
+    print("COST BY STRUCT FIELD (realm.variable → field)")
+    print("=" * 120)
+    print(f"{'Variable / Field':<60} {'Create':>8} {'Update':>8}"
+          f" {'Delete':>8} {'Net':>8} {'|Churn|':>8} {'#Obj':>5}  Object Types")
+    print("-" * 120)
+
+    grand_net = 0
+    grand_abs = 0
+
+    # Sort root vars by absolute net, descending
+    for root_key in sorted(by_root.keys(),
+                           key=lambda k: sum(abs(n) for _, _, n in by_root[k]),
+                           reverse=True):
+        entries = by_root[root_key]
+        root_net = sum(n for _, _, n in entries)
+        root_abs = sum(c["abs"] for _, c, _ in entries)
+        root_count = sum(c["count"] for _, c, _ in entries)
+        grand_net += root_net
+        grand_abs += root_abs
+
+        # Print root variable header
+        print(f"  {root_key:<58} {'':>8} {'':>8}"
+              f" {'':>8} {root_net:+8d} {root_abs:8d} {root_count:5d}")
+
+        # Sort fields within root by absolute net
+        for cat, costs, net in sorted(entries, key=lambda x: abs(x[2]), reverse=True):
+            type_str = ", ".join(f"{t}×{c}" for t, c in
+                                sorted(costs["types"].items(), key=lambda x: -x[1]))
+            # Truncate type string if too long
+            if len(type_str) > 35:
+                type_str = type_str[:32] + "..."
+            print(f"    → {cat:<54} {costs['create']:+8d} {costs['update']:+8d}"
+                  f" {costs['delete']:+8d} {net:+8d} {costs['abs']:8d} {costs['count']:5d}  {type_str}")
+
+    print("-" * 120)
+    print(f"{'TOTAL':<60} {'':>8} {'':>8}"
+          f" {'':>8} {grand_net:+8d} {grand_abs:8d}")
+
+
 def print_by_var(sections):
     """Group all objects across realms by (realm, root_var) and show cost."""
     var_costs = defaultdict(lambda: {"create": 0, "update": 0, "ancestor": 0,
@@ -281,6 +414,7 @@ def main():
         nth = int(sys.argv[idx + 1])
 
     by_var = "--by-var" in sys.argv
+    by_field = "--by-field" in sys.argv
 
     start, end = find_call_boundaries(lines, pattern, nth)
     if start is None:
@@ -297,7 +431,9 @@ def main():
         return
 
     print_summary(sections)
-    if by_var:
+    if by_field:
+        print_by_field(sections)
+    elif by_var:
         print_by_var(sections)
     else:
         print_detail(sections)

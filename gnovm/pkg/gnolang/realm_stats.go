@@ -156,9 +156,162 @@ func (l *realmStatsLogger) LogObjectCost(realmPath, op string, store Store, oo O
 	if rootVar != "" {
 		label = fmt.Sprintf("root=%s %s", rootVar, label)
 	}
+	fieldPath := objectFieldPath(store, oo)
+	if fieldPath != "" {
+		label = fmt.Sprintf("field_path=%s %s", fieldPath, label)
+	}
 	fmt.Fprintf(l.w,
 		"    [obj-cost] op=%-10s type=%-20s oid=%-30s owner=%-30s size=%6d diff=%+6d running=%+d %s\n",
 		op, typeName, oi.ID.String(), oi.OwnerID.String(), newSize, diff, runningTotal, label)
+}
+
+// objectFieldPath walks the ownership chain upward from an object, collecting
+// struct field names along the way. This identifies which specific field within
+// a struct hierarchy the object belongs to.
+// Example output: "ticks.leftNode" or "positions" or "observationState.observations"
+func objectFieldPath(store Store, oo Object) string {
+	defer func() { recover() }() //nolint:errcheck
+
+	var fields []string
+	current := oo
+
+	for depth := 0; depth < 30; depth++ {
+		owner := current.GetOwner()
+		if owner == nil {
+			ownerID := current.GetOwnerID()
+			if ownerID.IsZero() {
+				break
+			}
+			owner = store.GetObject(ownerID)
+			if owner == nil {
+				break
+			}
+		}
+
+		// If owner is a StructValue, find which field the current object is in
+		if sv, ok := owner.(*StructValue); ok {
+			fieldName := resolveStructFieldName(store, sv, current)
+			if fieldName != "" {
+				fields = append(fields, fieldName)
+			}
+		}
+
+		// Stop at Block (package level reached)
+		if _, ok := owner.(*Block); ok {
+			break
+		}
+
+		current = owner
+	}
+
+	if len(fields) == 0 {
+		return ""
+	}
+	// Reverse: fields are collected bottom-up, we want top-down
+	for i, j := 0, len(fields)-1; i < j; i, j = i+1, j-1 {
+		fields[i], fields[j] = fields[j], fields[i]
+	}
+	return strings.Join(fields, ".")
+}
+
+// resolveStructFieldName finds which field in a StructValue contains the child object.
+// It matches the child's OID against each field's value, then looks up the field name
+// from the StructType. Falls back to "[index]" if the type can't be resolved.
+func resolveStructFieldName(store Store, sv *StructValue, child Object) string {
+	childOID := child.GetObjectID()
+	if childOID.IsZero() {
+		return ""
+	}
+
+	// First, try to resolve the StructType for this StructValue.
+	st := getStructTypeFromValue(store, sv)
+
+	for i, fv := range sv.Fields {
+		var fieldOID ObjectID
+		switch cv := fv.V.(type) {
+		case Object:
+			fieldOID = cv.GetObjectID()
+		case RefValue:
+			fieldOID = cv.ObjectID
+		default:
+			continue
+		}
+		if fieldOID == childOID {
+			if st != nil && i < len(st.Fields) {
+				return string(st.Fields[i].Name)
+			}
+			// Fallback: use index with type hint
+			typeName := ""
+			if fv.T != nil {
+				typeName = fv.T.String()
+			}
+			if typeName != "" {
+				return fmt.Sprintf("[%d](%s)", i, typeName)
+			}
+			return fmt.Sprintf("[%d]", i)
+		}
+	}
+	return ""
+}
+
+// getStructTypeFromValue resolves the StructType for a StructValue by checking
+// how it's referenced in the ownership chain.
+func getStructTypeFromValue(store Store, sv *StructValue) *StructType {
+	// Strategy 1: Check if the StructValue's owner is a HeapItemValue
+	// whose TypedValue.T is a StructType or *StructType.
+	owner := sv.GetOwner()
+	if owner == nil {
+		ownerID := sv.GetOwnerID()
+		if !ownerID.IsZero() {
+			owner = store.GetObject(ownerID)
+		}
+	}
+	if owner == nil {
+		return nil
+	}
+
+	if hiv, ok := owner.(*HeapItemValue); ok {
+		return extractStructType(hiv.Value.T)
+	}
+
+	// Strategy 2: If owner is a StructValue, scan its Fields to find
+	// the TypedValue that references our StructValue.
+	if parentSV, ok := owner.(*StructValue); ok {
+		svOID := sv.GetObjectID()
+		for _, fv := range parentSV.Fields {
+			var fieldOID ObjectID
+			switch cv := fv.V.(type) {
+			case Object:
+				fieldOID = cv.GetObjectID()
+			case RefValue:
+				fieldOID = cv.ObjectID
+			default:
+				continue
+			}
+			if fieldOID == svOID {
+				return extractStructType(fv.T)
+			}
+		}
+	}
+
+	return nil
+}
+
+// extractStructType unwraps a Type to find the underlying *StructType,
+// handling pointer types.
+func extractStructType(t Type) *StructType {
+	if t == nil {
+		return nil
+	}
+	if st, ok := t.(*StructType); ok {
+		return st
+	}
+	if pt, ok := t.(*PointerType); ok {
+		if st, ok := pt.Elt.(*StructType); ok {
+			return st
+		}
+	}
+	return nil
 }
 
 // objectRootVar walks the ownership chain upward to find the package-level
