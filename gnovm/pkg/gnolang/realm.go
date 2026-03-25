@@ -1862,19 +1862,19 @@ func ensureUniq(oozz ...[]Object) {
 	}
 }
 
+const (
+	// maxInlineArrayElements is the maximum number of typed elements
+	// for an array to be inlined within its parent's KV entry.
+	maxInlineArrayElements = 4
+
+	// maxInlineArrayDataBytes is the maximum byte length for a
+	// Data-encoded byte array to be inlined within its parent.
+	maxInlineArrayDataBytes = 64
+)
+
 // shouldInlineArray returns true if the given ArrayValue should be
 // serialized inline within its parent Object rather than as a
 // separate KV entry.
-//
-// Criteria:
-//   - NOT already persisted (real): existing KV entries are preserved
-//     for backwards compatibility. avl.Tree copy-on-write naturally
-//     migrates old entries to inline over time.
-//   - NOT escaped or multi-referenced: shared Objects need independent
-//     KV entries for correct Merkle proof and IAVL tracking.
-//   - Small (≤ 8 elements): prevents parent KV entry bloat.
-//   - All elements are primitives (non-Object): child Objects need
-//     independent ownership tracking.
 func shouldInlineArray(av *ArrayValue) bool {
 	// Already-persisted arrays retain separate KV entries.
 	if av.GetIsReal() {
@@ -1888,10 +1888,10 @@ func shouldInlineArray(av *ArrayValue) bool {
 	}
 	// Byte arrays using compact Data encoding.
 	if av.Data != nil {
-		return len(av.Data) <= 256
+		return len(av.Data) <= maxInlineArrayDataBytes
 	}
-	// Only inline small arrays (covers [4]uint64 = u256.Uint).
-	if len(av.List) > 8 {
+	// Only inline small typed arrays.
+	if len(av.List) > maxInlineArrayElements {
 		return false
 	}
 	// Every element must be a pure primitive (V == nil, value in N).
