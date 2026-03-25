@@ -290,6 +290,23 @@ func (rlm *Realm) maybePromoteToReal(po Object) {
 	}
 }
 
+// setInlineOwner sets the owner on a newly-assigned inlineable object
+// so that subsequent element-level DidUpdate calls can walk up to the
+// real ancestor via markInlineAncestorDirty.
+//
+// This is needed because a freshly created inlineable array (e.g. from
+// a struct field assignment) has no owner yet, and restoreInlineArrayOwners
+// only runs after finalization — too late for mutations within the same
+// transaction.
+func setInlineOwner(base Object, tv *TypedValue) {
+	if !base.GetIsReal() {
+		return
+	}
+	if obj, ok := tv.V.(Object); ok && obj.IsInlineable() {
+		obj.SetOwner(base)
+	}
+}
+
 //----------------------------------------
 // mark*
 
@@ -1134,15 +1151,14 @@ const (
 // Value is either Object or RefValue.
 // Shallow; doesn't recurse into objects.
 func getSelfOrChildObjects(val Value, more []Value, mode collectMode) []Value {
-	switch cv := val.(type) {
-	case RefValue:
-		return append(more, cv)
-	case Object:
-		if mode == skipInlined && cv.IsInlineable() {
+	if _, ok := val.(RefValue); ok {
+		return append(more, val)
+	} else if obj, ok := val.(Object); ok {
+		if mode == skipInlined && obj.IsInlineable() {
 			return more // skip — inlined in parent
 		}
-		return append(more, cv)
-	default:
+		return append(more, val)
+	} else {
 		return getChildObjects(val, more)
 	}
 }
