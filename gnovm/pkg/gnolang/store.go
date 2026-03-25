@@ -555,7 +555,7 @@ func restoreInlineArrayOwners(parent Object) {
 func restoreInlineArrayOwnersTV(tv *TypedValue, owner Object) {
 	switch cv := tv.V.(type) {
 	case *ArrayValue:
-		if shouldInlineArray(cv) {
+		if cv.IsInlineable() {
 			cv.SetOwner(owner)
 			return
 		}
