@@ -604,7 +604,7 @@ func (rlm *Realm) processNewEscapedMarks(store Store, start int) int {
 			escaped = append(escaped, eo)
 
 			// add to escaped, and mark dirty previous owner.
-			po := getOwner(store, eo)
+			po := eo.GetOwner()
 			if po == nil {
 				// e.g. !eo.GetIsNewReal(),
 				// should have no parent.
@@ -670,8 +670,7 @@ func (rlm *Realm) markDirtyAncestors(store Store) {
 				break
 			} // else, rc == 1
 
-			po := getOwner(store, oo)
-
+			po := oo.GetOwner()
 			if po == nil {
 				break // no more owners.
 			} else if po.GetIsNewReal() {
@@ -1795,18 +1794,6 @@ func prettyJSON(jstr []byte) []byte {
 		return nil
 	}
 	return js
-}
-
-func getOwner(store Store, oo Object) Object {
-	po := oo.GetOwner()
-	poid := oo.GetOwnerID()
-	if po == nil {
-		if !poid.IsZero() {
-			po = store.GetObject(poid)
-			oo.SetOwner(po)
-		}
-	}
-	return po
 }
 
 // XXX this would be a lot faster if the PkgID itself included a private bit;
