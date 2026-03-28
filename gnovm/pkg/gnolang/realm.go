@@ -377,7 +377,6 @@ func (rlm *Realm) FinalizeRealmTransaction(store Store) {
 	// or via escaped-object persistence in
 	// the iavl tree.
 	rlm.saveUnsavedObjects(store)
-	// TODO saved newly escaped to iavl.
 	rlm.saveNewEscaped(store)
 	// delete all deleted objects.
 	rlm.removeDeletedObjects(store)

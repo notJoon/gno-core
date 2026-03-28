@@ -710,6 +710,11 @@ func (ds *defaultStore) DelObject(oo Object) int64 {
 		key := backendObjectKey(oid)
 		ds.baseStore.Delete([]byte(key))
 	}
+	// delete escaped hash from iavl.
+	if oo.GetIsEscaped() && ds.iavlStore != nil {
+		key := []byte(oid.String())
+		ds.iavlStore.Delete(key)
+	}
 	// make realm op log entry
 	if ds.opslog != nil {
 		fmt.Fprintf(ds.opslog, "d[%v](%d)\n", oo.GetObjectID(), -size)
