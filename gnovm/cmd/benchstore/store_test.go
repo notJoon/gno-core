@@ -19,6 +19,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/cockroachdb/pebble"
@@ -30,6 +32,8 @@ var (
 	flagMemtableMB  = flag.Int("memtable-mb", 0, "PebbleDB memtable size in MB (0 = use default 64MB)")
 	flagCompactions = flag.Int("compactions", 0, "PebbleDB max concurrent compactions (0 = use default 3)")
 	flagMaxKeys     = flag.Int("max-keys", 0, "Skip DB sizes above this many keys (0 = no limit)")
+	flagCacheSweep  = flag.String("cache-sweep", "", "Comma-separated cache sizes in MB for GetCacheSweep (e.g. 500,1024,2048,4096,8192)")
+	flagSweepKeys   = flag.Int("sweep-keys", 100_000_000, "Number of keys for GetCacheSweep benchmark")
 )
 
 func benchPebbleOpts() *pebble.Options {
@@ -67,6 +71,12 @@ func repeat(ch byte, n int) []byte {
 	}
 	return b
 }
+
+// noopLogger suppresses PebbleDB WAL replay log spam.
+type noopLogger struct{}
+
+func (noopLogger) Infof(format string, args ...interface{})  {}
+func (noopLogger) Fatalf(format string, args ...interface{}) { panic(fmt.Sprintf(format, args...)) }
 
 // pebbleEnv holds a populated and warmed PebbleDB.
 // Setup once, then run Get/Set sub-benchmarks against it.
@@ -276,5 +286,109 @@ func BenchmarkStorePebbleDeleteAndInsert(b *testing.B) {
 		if env != nil {
 			env.Close()
 		}
+	}
+}
+
+// BenchmarkStorePebbleGetCacheSweep populates a DB once, then benchmarks Get
+// at different cache sizes by closing and reopening PebbleDB.
+//
+// Usage:
+//
+//	go test ./gnovm/cmd/benchstore/ -bench=GetCacheSweep -timeout=6h \
+//	    -sweep-keys=100000000 -cache-sweep=500,1024,2048,4096,8192
+func BenchmarkStorePebbleGetCacheSweep(b *testing.B) {
+	if *flagCacheSweep == "" {
+		b.Skip("use -cache-sweep=500,1024,... to run")
+	}
+	var cacheSizes []int
+	for _, s := range strings.Split(*flagCacheSweep, ",") {
+		mb, err := strconv.Atoi(strings.TrimSpace(s))
+		if err != nil {
+			b.Fatalf("bad cache size %q: %v", s, err)
+		}
+		cacheSizes = append(cacheSizes, mb)
+	}
+
+	n := *flagSweepKeys
+
+	// Populate once using default options.
+	dir, err := os.MkdirTemp("", "gno-cache-sweep-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	func() {
+		db, err := pebbledb.NewPebbleDBWithOpts("bench", dir, benchPebbleOpts())
+		if err != nil {
+			b.Fatal(err)
+		}
+		defer db.Close()
+
+		val := make([]byte, 256)
+		prng := rand.New(rand.NewSource(0))
+		batch := db.NewBatch()
+		for i := 0; i < n; i++ {
+			key := make([]byte, 8)
+			binary.BigEndian.PutUint64(key, uint64(i))
+			prng.Read(val)
+			batch.Set(key, val)
+			if (i+1)%10000 == 0 {
+				batch.Write()
+				batch.Close()
+				batch = db.NewBatch()
+				printProgress("populate", i+1, n)
+			}
+		}
+		batch.Write()
+		batch.Close()
+		printProgress("populate", n, n)
+	}()
+
+	fmt.Fprintf(os.Stderr, "  db size: %s\n", dirSize(dir))
+
+	for _, mb := range cacheSizes {
+		mb := mb
+		b.Run(fmt.Sprintf("cache=%dMB/keys=%d", mb, n), func(b *testing.B) {
+			opts := pebbledb.DefaultPebbleOptions()
+			cache := pebble.NewCache(int64(mb) << 20)
+			defer cache.Unref()
+			opts.Cache = cache
+			opts.Logger = noopLogger{}
+
+			db, err := pebbledb.NewPebbleDBWithOpts("bench", dir, opts)
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer db.Close()
+
+			// Warmup: random reads to fill the cache.
+			// Each read loads a 4KB block (~15 KVs), so read enough
+			// to fill the cache capacity.
+			warmupReads := int(int64(mb) << 20 / 4096)
+			if warmupReads > n {
+				warmupReads = n
+			}
+			rng := rand.New(rand.NewSource(99))
+			for i := 0; i < warmupReads; i++ {
+				key := make([]byte, 8)
+				binary.BigEndian.PutUint64(key, uint64(rng.Intn(n)))
+				db.Get(key)
+				if (i+1)%10000 == 0 {
+					printProgress(fmt.Sprintf("warmup %dMB", mb), i+1, warmupReads)
+				}
+			}
+			printProgress(fmt.Sprintf("warmup %dMB", mb), warmupReads, warmupReads)
+
+			rng = rand.New(rand.NewSource(42))
+			var sink []byte
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				key := make([]byte, 8)
+				binary.BigEndian.PutUint64(key, uint64(rng.Intn(n)))
+				sink, _ = db.Get(key)
+			}
+			runtime.KeepAlive(sink)
+		})
 	}
 }
