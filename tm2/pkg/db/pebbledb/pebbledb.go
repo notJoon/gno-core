@@ -7,10 +7,25 @@ import (
 	"slices"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/bloom"
 
 	"github.com/gnolang/gno/tm2/pkg/db"
 	"github.com/gnolang/gno/tm2/pkg/db/internal"
 )
+
+// DefaultPebbleOptions returns pebble.Options tuned for gno.land production.
+func DefaultPebbleOptions() *pebble.Options {
+	cache := pebble.NewCache(500 << 20) // 500 MB
+	opts := &pebble.Options{
+		Cache:                    cache,
+		MemTableSize:             64 << 20, // 64 MB
+		MaxConcurrentCompactions: func() int { return 3 },
+		Levels: []pebble.LevelOptions{
+			{FilterPolicy: bloom.FilterPolicy(10)},
+		},
+	}
+	return opts
+}
 
 func init() {
 	dbCreator := func(name string, dir string) (db.DB, error) {
