@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/cockroachdb/pebble"
@@ -27,6 +29,7 @@ var (
 	flagCacheMB     = flag.Int("cache-mb", 0, "PebbleDB block cache size in MB (0 = use default 500MB)")
 	flagMemtableMB  = flag.Int("memtable-mb", 0, "PebbleDB memtable size in MB (0 = use default 64MB)")
 	flagCompactions = flag.Int("compactions", 0, "PebbleDB max concurrent compactions (0 = use default 3)")
+	flagMaxKeys     = flag.Int("max-keys", 0, "Skip DB sizes above this many keys (0 = no limit)")
 )
 
 func benchPebbleOpts() *pebble.Options {
@@ -84,8 +87,10 @@ func newPebbleEnv(n int, valSize int) (*pebbleEnv, error) {
 		return nil, err
 	}
 
-	// Populate
+	// Populate with non-zero values to avoid compression artifacts.
 	val := make([]byte, valSize)
+	prng := rand.New(rand.NewSource(0))
+	prng.Read(val)
 	batch := db.NewBatch()
 	for i := 0; i < n; i++ {
 		key := make([]byte, 8)
@@ -124,12 +129,34 @@ func newPebbleEnv(n int, valSize int) (*pebbleEnv, error) {
 
 func (env *pebbleEnv) Close() {
 	env.db.Close()
+	fmt.Fprintf(os.Stderr, "  db size: %s\n", dirSize(env.dir))
 	os.RemoveAll(env.dir)
 }
 
+func dirSize(path string) string {
+	var total int64
+	filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	switch {
+	case total >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(total)/(1<<30))
+	case total >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(total)/(1<<20))
+	default:
+		return fmt.Sprintf("%.1f KB", float64(total)/(1<<10))
+	}
+}
+
 func BenchmarkStorePebbleGet(b *testing.B) {
-	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000} {
+	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000} {
 		n := n
+		if *flagMaxKeys > 0 && n > *flagMaxKeys {
+			continue
+		}
 		var env *pebbleEnv
 		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
 			if env == nil {
@@ -140,12 +167,14 @@ func BenchmarkStorePebbleGet(b *testing.B) {
 				}
 			}
 			rng := rand.New(rand.NewSource(42))
+			var sink []byte
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				key := make([]byte, 8)
 				binary.BigEndian.PutUint64(key, uint64(rng.Intn(n)))
-				env.db.Get(key)
+				sink, _ = env.db.Get(key)
 			}
+			runtime.KeepAlive(sink)
 		})
 		if env != nil {
 			env.Close()
@@ -153,9 +182,12 @@ func BenchmarkStorePebbleGet(b *testing.B) {
 	}
 }
 
-func BenchmarkStorePebbleSet(b *testing.B) {
-	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000} {
+func BenchmarkStorePebbleSetOverwrite(b *testing.B) {
+	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000} {
 		n := n
+		if *flagMaxKeys > 0 && n > *flagMaxKeys {
+			continue
+		}
 		var env *pebbleEnv
 		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
 			if env == nil {
@@ -167,11 +199,78 @@ func BenchmarkStorePebbleSet(b *testing.B) {
 			}
 			rng := rand.New(rand.NewSource(42))
 			val := make([]byte, 256)
+			rng.Read(val)
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				key := make([]byte, 8)
-				binary.BigEndian.PutUint64(key, uint64(rng.Intn(n*2)))
+				binary.BigEndian.PutUint64(key, uint64(rng.Intn(n)))
 				env.db.Set(key, val)
+			}
+		})
+		if env != nil {
+			env.Close()
+		}
+	}
+}
+
+func BenchmarkStorePebbleSetInsert(b *testing.B) {
+	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000} {
+		n := n
+		if *flagMaxKeys > 0 && n > *flagMaxKeys {
+			continue
+		}
+		var env *pebbleEnv
+		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
+			if env == nil {
+				var err error
+				env, err = newPebbleEnv(n, 256)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+			val := make([]byte, 256)
+			rand.Read(val)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				key := make([]byte, 8)
+				binary.BigEndian.PutUint64(key, uint64(n+i))
+				env.db.Set(key, val)
+			}
+		})
+		if env != nil {
+			env.Close()
+		}
+	}
+}
+
+func BenchmarkStorePebbleDeleteAndInsert(b *testing.B) {
+	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000} {
+		n := n
+		if *flagMaxKeys > 0 && n > *flagMaxKeys {
+			continue
+		}
+		var env *pebbleEnv
+		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
+			if env == nil {
+				var err error
+				env, err = newPebbleEnv(n, 256)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+			rng := rand.New(rand.NewSource(42))
+			val := make([]byte, 256)
+			rng.Read(val)
+			delKey := make([]byte, 8)
+			addKey := make([]byte, 8)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				// Delete a random existing key.
+				binary.BigEndian.PutUint64(delKey, uint64(rng.Intn(n)))
+				env.db.Delete(delKey)
+				// Insert a new key to keep DB size stable.
+				binary.BigEndian.PutUint64(addKey, uint64(n+i))
+				env.db.Set(addKey, val)
 			}
 		})
 		if env != nil {
