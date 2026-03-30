@@ -87,14 +87,14 @@ func newPebbleEnv(n int, valSize int) (*pebbleEnv, error) {
 		return nil, err
 	}
 
-	// Populate with non-zero values to avoid compression artifacts.
+	// Populate with varying values to avoid compression artifacts.
 	val := make([]byte, valSize)
 	prng := rand.New(rand.NewSource(0))
-	prng.Read(val)
 	batch := db.NewBatch()
 	for i := 0; i < n; i++ {
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, uint64(i))
+		prng.Read(val)
 		batch.Set(key, val)
 		if (i+1)%10000 == 0 {
 			batch.Write()
