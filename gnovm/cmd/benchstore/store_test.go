@@ -128,7 +128,7 @@ func (env *pebbleEnv) Close() {
 }
 
 func BenchmarkStorePebbleGet(b *testing.B) {
-	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000} {
+	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000} {
 		n := n
 		var env *pebbleEnv
 		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
@@ -154,7 +154,7 @@ func BenchmarkStorePebbleGet(b *testing.B) {
 }
 
 func BenchmarkStorePebbleSet(b *testing.B) {
-	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000} {
+	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000} {
 		n := n
 		var env *pebbleEnv
 		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
