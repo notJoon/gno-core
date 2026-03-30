@@ -4947,6 +4947,24 @@ func BenchmarkOpPanic2(b *testing.B) {
 	reportBenchops(b)
 }
 
+// --- doOpExec OpExec: statement dispatch overhead ---
+
+func BenchmarkOpExec_EmptyStmt(b *testing.B) {
+	m := benchMachine()
+	defer m.Release()
+	es := &EmptyStmt{}
+	m.PushStmt(es)
+	bm.InitMeasure()
+	bm.BeginOpCode(bmSetup)
+	for range b.N {
+		bm.SwitchOpCode(bmTarget)
+		m.doOpExec(OpExec) // dispatch EmptyStmt — the cheapest possible statement
+		bm.SwitchOpCode(bmSetup)
+		m.PushStmt(es) // re-push for next iter
+	}
+	reportBenchops(b)
+}
+
 // --- doOpExec OpBody: bodyStmt state machine ---
 
 func BenchmarkOpBody(b *testing.B) {

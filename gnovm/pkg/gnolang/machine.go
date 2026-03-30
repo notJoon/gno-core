@@ -1392,9 +1392,9 @@ const (
 	// pulling the fit coefficient below the same-width-only value (~4).
 	// NOTE: small operands (<128 bits) are undercharged because the quadratic
 	// term rounds to 0 in integer math. A minimum BigInt overhead would fix this.
-	OpCPUSlopeBigIntMulQ = 4 // per (bits/32)^2 / 32 (fit: 4.42)
-	OpCPUSlopeBigIntQuoQ = 2 // per (bits/32)^2 / 32 (fit: 2.21, cross-width data)
-	OpCPUSlopeBigIntRemQ = 3 // per (bits/32)^2 / 32 (fit: 3.20, cross-width data)
+	OpCPUSlopeBigIntMulQ = 4 // per lb*rb/32 (fit: 3.83, R²=0.99, same+cross width)
+	OpCPUSlopeBigIntQuoQ = 4 // per lb*rb/32 (fit: 3.59, R²=0.54, same+cross width)
+	OpCPUSlopeBigIntRemQ = 3 // per lb*rb/32 (fit: 3.40, R²=0.52, same+cross width)
 	// Shift ops: Shl charges per-kilobit of shift amount (output growth).
 	// Shr charges per-kilobit of input bit width.
 	OpCPUSlopeBigIntShl = 39 // fit: 0.038 ns/bit * 1024 = 38.9

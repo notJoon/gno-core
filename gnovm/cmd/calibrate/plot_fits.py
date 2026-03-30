@@ -56,9 +56,13 @@ def least_squares(points):
     r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 1.0
     return (a, b, r2)
 
-# Families whose cost is O(N²) because benchmarks use N1=N2=N.
-# Fit against N² instead of N.
-QUADRATIC_FAMILIES = {'Mul (BigInt)', 'Mul (BigDec)', 'Quo (BigDec)'}
+# Families whose cost is O(N²). The code uses:
+#   BigInt: gas = (bits/32) * (bits/32) * slope / 32
+#   BigDec: gas = (digits/10) * (digits/10) * slope / 10
+# For the plot, we fit ns = a + b * Q where Q is the code's scaling variable.
+QUADRATIC_BIGINT = {'Mul (BigInt)', 'Quo (BigInt)', 'Rem (BigInt)'}  # Q = (bits/32)^2 / 32
+QUADRATIC_BIGDEC = {'Mul (BigDec)', 'Quo (BigDec)'}                 # Q = (digits/10)^2 / 10
+QUADRATIC_FAMILIES = QUADRATIC_BIGINT | QUADRATIC_BIGDEC
 
 # All parameterized families: (name, param_label, [(bench_name, N), ...])
 FAMILIES = [
@@ -160,6 +164,12 @@ FAMILIES = [
     ('Mul (BigInt)', 'bits', [
         ('BenchmarkOpMul_BigInt_64', 64), ('BenchmarkOpMul_BigInt_256', 256),
         ('BenchmarkOpMul_BigInt_1024', 1024), ('BenchmarkOpMul_BigInt_4096', 4096)]),
+    ('Quo (BigInt)', 'bits', [
+        ('BenchmarkOpQuo_BigInt_64', 64), ('BenchmarkOpQuo_BigInt_256', 256),
+        ('BenchmarkOpQuo_BigInt_1024', 1024), ('BenchmarkOpQuo_BigInt_4096', 4096)]),
+    ('Rem (BigInt)', 'bits', [
+        ('BenchmarkOpRem_BigInt_64', 64), ('BenchmarkOpRem_BigInt_256', 256),
+        ('BenchmarkOpRem_BigInt_1024', 1024), ('BenchmarkOpRem_BigInt_4096', 4096)]),
     ('Eql (BigInt)', 'bits', [
         ('BenchmarkOpEql_BigInt_64', 64), ('BenchmarkOpEql_BigInt_256', 256),
         ('BenchmarkOpEql_BigInt_1024', 1024), ('BenchmarkOpEql_BigInt_4096', 4096)]),
@@ -266,8 +276,15 @@ def main():
 
         is_quad = name in QUADRATIC_FAMILIES
 
-        if is_quad:
-            quad_points = [(x*x, y) for x, y in points]
+        if name in QUADRATIC_BIGINT:
+            # Code formula: gas = (bits/32)^2 * slope / 32
+            # Q = (bits/32)^2 / 32
+            quad_points = [((x/32)**2/32, y) for x, y in points]
+            a, b, r2 = least_squares(quad_points)
+        elif name in QUADRATIC_BIGDEC:
+            # Code formula: gas = (digits/10)^2 * slope / 10
+            # Q = (digits/10)^2 / 10
+            quad_points = [((x/10)**2/10, y) for x, y in points]
             a, b, r2 = least_squares(quad_points)
         else:
             a, b, r2 = least_squares(points)
@@ -293,9 +310,15 @@ def main():
             y_fit = np.full_like(x_fit, y_mean)
             eq = f'flat ~{y_mean:.0f}'
             color = '#9E9E9E'
-        elif is_quad:
-            y_fit = a + b * x_fit * x_fit
-            eq = f'{a:.0f} + {b:.4f}*N\u00b2'
+        elif name in QUADRATIC_BIGINT:
+            q_fit = (x_fit / 32)**2 / 32
+            y_fit = a + b * q_fit
+            eq = f'{a:.0f} + {b:.1f}*Q  [Q=(N/32)\u00b2/32]'
+            color = '#4CAF50' if r2 >= 0.95 else '#FF9800' if r2 >= 0.8 else '#F44336'
+        elif name in QUADRATIC_BIGDEC:
+            q_fit = (x_fit / 10)**2 / 10
+            y_fit = a + b * q_fit
+            eq = f'{a:.0f} + {b:.1f}*Q  [Q=(N/10)\u00b2/10]'
             color = '#4CAF50' if r2 >= 0.95 else '#FF9800' if r2 >= 0.8 else '#F44336'
         else:
             y_fit = a + b * x_fit

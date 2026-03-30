@@ -311,19 +311,24 @@ BIGINT_FAMILIES = [
     ('Sub (BigInt)', [
         ('BenchmarkOpSub_BigInt_64', 64), ('BenchmarkOpSub_BigInt_256', 256),
         ('BenchmarkOpSub_BigInt_1024', 1024), ('BenchmarkOpSub_BigInt_4096', 4096)]),
-    ('Mul (BigInt) [same width]', [
+    ('Mul (BigInt)', [
         ('BenchmarkOpMul_BigInt_64', 64), ('BenchmarkOpMul_BigInt_256', 256),
-        ('BenchmarkOpMul_BigInt_1024', 1024), ('BenchmarkOpMul_BigInt_4096', 4096)]),
-    ('Mul (BigInt) [cross width]', [
-        ('BenchmarkOpMul_BigInt_64x1024', 64*1024), ('BenchmarkOpMul_BigInt_64x4096', 64*4096),
-        ('BenchmarkOpMul_BigInt_256x1024', 256*1024), ('BenchmarkOpMul_BigInt_256x4096', 256*4096)]),
-    ('Quo (BigInt)', [
-        ('BenchmarkOpQuo_BigInt_1024x64', 1024), ('BenchmarkOpQuo_BigInt_4096x64', 4096),
-        ('BenchmarkOpQuo_BigInt_4096x256', 4096)]),
+        ('BenchmarkOpMul_BigInt_1024', 1024), ('BenchmarkOpMul_BigInt_4096', 4096),
+        ('BenchmarkOpMul_BigInt_64x1024', (64, 1024)),
+        ('BenchmarkOpMul_BigInt_64x4096', (64, 4096)),
+        ('BenchmarkOpMul_BigInt_256x1024', (256, 1024)),
+        ('BenchmarkOpMul_BigInt_256x4096', (256, 4096))]),
+    ('Quo (BigInt)', [  # N = lBits for same-width; (lBits, rBits) for cross-width
+        ('BenchmarkOpQuo_BigInt_64', 64), ('BenchmarkOpQuo_BigInt_256', 256),
+        ('BenchmarkOpQuo_BigInt_1024', 1024), ('BenchmarkOpQuo_BigInt_4096', 4096),
+        ('BenchmarkOpQuo_BigInt_1024x64', (1024, 64)),
+        ('BenchmarkOpQuo_BigInt_4096x64', (4096, 64)),
+        ('BenchmarkOpQuo_BigInt_4096x256', (4096, 256))]),
     ('Rem (BigInt)', [
         ('BenchmarkOpRem_BigInt_64', 64), ('BenchmarkOpRem_BigInt_256', 256),
         ('BenchmarkOpRem_BigInt_1024', 1024), ('BenchmarkOpRem_BigInt_4096', 4096),
-        ('BenchmarkOpRem_BigInt_4096x64', 4096), ('BenchmarkOpRem_BigInt_4096x256', 4096)]),
+        ('BenchmarkOpRem_BigInt_4096x64', (4096, 64)),
+        ('BenchmarkOpRem_BigInt_4096x256', (4096, 256))]),
     ('Shl (BigInt)', [
         ('BenchmarkOpShl_BigInt_10', 10), ('BenchmarkOpShl_BigInt_100', 100),
         ('BenchmarkOpShl_BigInt_1000', 1000), ('BenchmarkOpShl_BigInt_10000', 10000)]),
@@ -389,9 +394,11 @@ BIGDEC_FAMILIES = [
         ('BenchmarkOpDec_BigDec_1000', 1000), ('BenchmarkOpDec_BigDec_10000', 10000)]),
 ]
 
-# Families whose cost is O(N²) because benchmarks use N1=N2=N.
+# Families whose cost is O(N²) — uses lb*rb product for cross-width data.
 QUADRATIC_FAMILIES = {
-    'Mul (BigInt) [same width]',
+    'Mul (BigInt)',
+    'Quo (BigInt)',
+    'Rem (BigInt)',
     'Mul (BigDec)',
     'Quo (BigDec)',
 }
@@ -421,14 +428,20 @@ def emit_param_section(out, data, families, param_unit):
         out.append('')
         out.append('--- %s (%s) ---' % (display_name, label))
         out.append('')
-        out.append('  %8s %10s %10s %10s %10s' % (label, 'ns/op', 'alloc-gas', 'total-gas', 'cpu-gas'))
+        out.append('  %10s %10s %10s %10s %10s' % (label, 'ns/op', 'alloc-gas', 'total-gas', 'cpu-gas'))
         out.append('  ' + '-' * 58)
         for n_val, ns_pure, alloc_gas, total_g, cpu_g in rows:
-            out.append('  %8d %10.1f %10.1f %10.1f %10.1f' % (n_val, ns_pure, alloc_gas, total_g, cpu_g))
+            n_str = '%dx%d' % n_val if isinstance(n_val, tuple) else str(n_val)
+            out.append('  %10s %10.1f %10.1f %10.1f %10.1f' % (n_str, ns_pure, alloc_gas, total_g, cpu_g))
 
         if len(points_cpu) >= 2:
             if is_quad:
-                quad_points = [(x*x, y) for x, y in points_cpu]
+                # Use proper Q variable for the formula used in code.
+                def to_q(n):
+                    if isinstance(n, tuple):
+                        return (n[0] * n[1])  # product for cross-width
+                    return n * n  # same-width
+                quad_points = [(to_q(x), y) for x, y in points_cpu]
                 a, b, r2 = least_squares(quad_points)
                 out.append('')
                 out.append('  CPU gas fit: %.1f + %.6f * %s²  (R²=%.4f)' % (a, b, label, r2))
@@ -724,8 +737,7 @@ def main():
     BIGINT_GO_NAMES = {
         'Add (BigInt)':             'BigIntAdd',
         'Sub (BigInt)':             'BigIntSub',
-        'Mul (BigInt) [same width]':'BigIntMulQ',  # quadratic, special
-        'Mul (BigInt) [cross width]': None,         # skip
+        'Mul (BigInt)':             'BigIntMulQ',  # quadratic, same+cross width
         'Quo (BigInt)':             'BigIntQuoQ',   # quadratic, special
         'Rem (BigInt)':             'BigIntRemQ',   # quadratic, special
         'Shl (BigInt)':             'BigIntShl',
@@ -807,7 +819,7 @@ def main():
         go_name = BIGINT_GO_NAMES.get(display_name)
         if go_name is None:
             continue
-        points = []
+        points = []  # (n_val_or_tuple, cpu_gas)
         for bench_name, n_val in benchmarks:
             s = get_stats(data, bench_name)
             if s is None: continue
@@ -817,13 +829,19 @@ def main():
         if len(points) < 2:
             continue
         if go_name in BIGINT_QUADRATIC:
-            # Quadratic fit: ns = a + b * Q where Q = (bits/32)^2 / 32
-            q_points = [((x/32)**2/32, y) for x, y in points]
+            # Quadratic fit: gas = (lBits/32) * (rBits/32) * slope / 32
+            # For same-width N: Q = (N/32)^2 / 32
+            # For cross-width (L, R): Q = (L/32) * (R/32) / 32
+            def bigint_q(n):
+                if isinstance(n, tuple):
+                    return (n[0]/32) * (n[1]/32) / 32
+                return (n/32)**2 / 32
+            q_points = [(bigint_q(x), y) for x, y in points]
             a_q, b_q, r2_q = least_squares(q_points)
             slope_val = max(1, round(b_q))
-            p('\t// Quadratic: gas = (bits/32)^2 * slope / 32.')
-            p('\tOpCPUSlope%-20s = %4d // quadratic fit: slope=%.2f, intercept=%.0f' % (
-                go_name, slope_val, b_q, a_q))
+            p('\t// Quadratic: gas = (lBits/32) * (rBits/32) * slope / 32.')
+            p('\tOpCPUSlope%-20s = %4d // quadratic fit: slope=%.2f, intercept=%.0f (R²=%.4f)' % (
+                go_name, slope_val, b_q, a_q, r2_q))
         else:
             a, b, r2 = least_squares(points)
             slope_per_kb = b * 1024
