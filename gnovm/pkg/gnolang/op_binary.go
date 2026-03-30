@@ -199,6 +199,16 @@ func (m *Machine) doOpAdd() {
 		debugAssertSameTypes(lv.T, rv.T)
 	}
 
+	// Gas based on operand type.
+	switch lv.T.Kind() {
+	case StringKind:
+		m.incrCPU(OpCPUAddString)
+	case Float32Kind, Float64Kind:
+		m.incrCPU(OpCPUAddFloat)
+	default:
+		m.incrCPU(OpCPUAddInt)
+	}
+
 	// Per-N gas for BigInt/BigDec.
 	m.incrCPUBigInt(lv, rv, OpCPUSlopeBigIntAdd)
 	m.incrCPUBigDec(lv, rv, OpCPUSlopeBigDecAdd)
@@ -215,6 +225,14 @@ func (m *Machine) doOpSub() {
 	lv := m.PeekValue(1) // also result
 	if debug {
 		debugAssertSameTypes(lv.T, rv.T)
+	}
+
+	// Gas based on operand type.
+	switch lv.T.Kind() {
+	case Float32Kind, Float64Kind:
+		m.incrCPU(OpCPUSubFloat)
+	default:
+		m.incrCPU(OpCPUSubInt)
 	}
 
 	m.incrCPUBigInt(lv, rv, OpCPUSlopeBigIntSub)
@@ -266,6 +284,14 @@ func (m *Machine) doOpMul() {
 		debugAssertSameTypes(lv.T, rv.T)
 	}
 
+	// Gas based on operand type.
+	switch lv.T.Kind() {
+	case Float32Kind, Float64Kind:
+		m.incrCPU(OpCPUMulFloat)
+	default:
+		m.incrCPU(OpCPUMulInt)
+	}
+
 	m.incrCPUBigIntQuad(lv, rv, OpCPUSlopeBigIntMulQ)
 	m.incrCPUBigDecQuad(lv, rv, OpCPUSlopeBigDecMulQ)
 
@@ -283,6 +309,15 @@ func (m *Machine) doOpQuo() {
 		debugAssertSameTypes(lv.T, rv.T)
 	}
 
+	// Gas based on operand type.
+	switch lv.T.Kind() {
+	case Float32Kind, Float64Kind:
+		m.incrCPU(OpCPUQuoFloat)
+	default:
+		m.incrCPU(OpCPUQuoInt)
+	}
+
+	m.incrCPUBigIntQuad(lv, rv, OpCPUSlopeBigIntQuoQ)
 	m.incrCPUBigDecQuad(lv, rv, OpCPUSlopeBigDecQuoQ)
 
 	// lv / rv

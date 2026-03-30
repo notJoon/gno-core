@@ -20,6 +20,7 @@ func (m *Machine) doOpPrecall() {
 
 	switch fv := v.(type) {
 	case *FuncValue:
+		m.incrCPU(OpCPUPrecallFunc)
 		m.PushFrameCall(cx, fv, TypedValue{}, false)
 		m.PushOp(OpCall)
 		isCrossing := fv.IsCrossing()
@@ -41,6 +42,7 @@ func (m *Machine) doOpPrecall() {
 			niltv.Assign(m.Alloc, crlm, false)
 		}
 	case *BoundMethodValue:
+		m.incrCPU(OpCPUPrecallBoundMethod)
 		recv := fv.Receiver
 		m.PushFrameCall(cx, fv.Func, recv, false)
 		m.PushOp(OpCall)
@@ -63,6 +65,7 @@ func (m *Machine) doOpPrecall() {
 			niltv.Assign(m.Alloc, crlm, false)
 		}
 	case TypeValue:
+		m.incrCPU(OpCPUPrecallTypeConv)
 		// Do not pop type yet.
 		// No need for frames.
 		xv := m.PeekValue(1)

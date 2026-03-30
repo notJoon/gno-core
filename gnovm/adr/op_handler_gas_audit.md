@@ -298,16 +298,16 @@ smaller caches and unified memory with higher random-access latency at scale.
 
 This led to replacing the flat `VisitCpuFactor=8` constant with `gcVisitGasTable`:
 a 25-entry lookup table indexed by `log2(visitCount)`, calibrated from the Xeon
-benchmarks. Per-visit gas ranges from 6 (small heaps, L1/L2) to 135 (large
+benchmarks. Per-visit gas ranges from 29 (small heaps, L1/L2) to 700 (large
 heaps, DRAM+TLB).
 
-### Reference hardware and cpuBaseNs
+### Reference hardware
 
 All gas calibration uses a DigitalOcean Dedicated CPU droplet:
 - Intel Xeon Platinum 8168 @ 2.70GHz, 2 cores
-- cpuBaseNs = 5.2 ns/gas (from benchops: weighted avg of OpCPU constants)
+- 1 gas = 1 ns (gas constants are raw nanoseconds on this hardware)
 
-On Apple M2: cpuBaseNs ≈ 3.5 ns/gas (faster per-core, but worse at large heaps).
+On Apple M2: ops are ~1.5x faster per-core, but worse at large heaps.
 
 The gas model must be calibrated against a single reference machine for consensus.
 Individual validator hardware differences are absorbed by the gas price mechanism.

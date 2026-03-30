@@ -25,7 +25,7 @@ The reference benchmarks (`bench_output_do_dedicated.txt`) were run on:
 
 Power-law fit result: `ns = 0.47 × size^0.925` (α = 0.925).
 
-`cpuBaseNs = 5.2` — the weighted-average ns per gas unit, computed from `benchops` on the same hardware. Used to convert benchmark ns to gas units: `gas = ns / cpuBaseNs`.
+Gas unit: 1 gas = 1 nanosecond of wall time on the reference hardware.
 
 ## Usage
 
@@ -36,20 +36,10 @@ cd gnovm/cmd/calibrate
 go test -bench=BenchmarkAlloc -benchmem -count=5 -timeout=30m . > bench_output.txt
 ```
 
-### 2. Compute cpuBaseNs
-
-Run `benchops` on the same machine (see `gnovm/cmd/benchops/`). Then compute the weighted average:
-
-```
-cpuBaseNs = sum(ns × count) / sum(gas × count)
-```
-
-where `ns` and `count` come from `results_stats.csv`, and `gas` comes from the `OpCPU*` constants in `machine.go`.
-
-### 3. Generate table
+### 2. Generate table
 
 ```bash
-python3 gen_alloc_table.py bench_output.txt --cpu-base-ns 5.2
+python3 gen_alloc_table.py bench_output.txt --cpu-base-ns 1.0
 ```
 
 This prints:

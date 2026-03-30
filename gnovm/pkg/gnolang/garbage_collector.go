@@ -8,21 +8,22 @@ import (
 )
 
 // gcVisitGasTable[k] = gas per GC visit when log2(visitCount) == k.
+// 1 gas = 1 nanosecond on reference hardware.
 // Per-visit cost increases with heap size due to CPU cache effects:
-// small heaps fit in L2/L3 (~30ns/visit), large heaps hit DRAM (~700ns/visit).
+// small heaps fit in L2/L3 (~29ns/visit), large heaps hit DRAM (~700ns/visit).
 //
 // Calibrated from BenchmarkGCVisit on DigitalOcean Dedicated (2-core),
-// Intel Xeon Platinum 8168 @ 2.70GHz, cpuBaseNs = 5.2 ns/gas.
+// Intel Xeon Platinum 8168 @ 2.70GHz.
 //
 // See gnovm/pkg/gnolang/bench_gc_test.go for benchmarks.
 var gcVisitGasTable = [25]int64{
-	6, 6, 6, 6, 6, 6, 6, // 2^0 - 2^6:   1-64 visits       (~29ns, L1/L2)
-	8, 8, 8, // 2^7 - 2^9:   128-512 visits     (~40ns, L2/L3)
-	18, 18, 18, // 2^10 - 2^12: 1K-4K visits       (~91ns, L3)
-	30, 30, 30, 38, // 2^13 - 2^16: 8K-64K visits      (~160-197ns, L3/DRAM)
-	55, 55, 73, // 2^17 - 2^19: 128K-512K visits   (~290-380ns, DRAM)
-	73, 73, 100, // 2^20 - 2^22: 1M-4M visits       (~380-520ns, DRAM)
-	135, 135, // 2^23 - 2^24: 8M-16M visits      (~700ns, DRAM+TLB)
+	29, 29, 29, 29, 29, 29, 29, // 2^0 - 2^6:   1-64 visits       (~29ns, L1/L2)
+	40, 40, 40, // 2^7 - 2^9:   128-512 visits     (~40ns, L2/L3)
+	91, 91, 91, // 2^10 - 2^12: 1K-4K visits       (~91ns, L3)
+	160, 160, 160, 197, // 2^13 - 2^16: 8K-64K visits      (~160-197ns, L3/DRAM)
+	290, 290, 380, // 2^17 - 2^19: 128K-512K visits   (~290-380ns, DRAM)
+	380, 380, 520, // 2^20 - 2^22: 1M-4M visits       (~380-520ns, DRAM)
+	700, 700, // 2^23 - 2^24: 8M-16M visits      (~700ns, DRAM+TLB)
 }
 
 // gcVisitGas returns total gas for a GC traversal of visitCount objects.

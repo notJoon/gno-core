@@ -17,8 +17,8 @@ Usage:
     # Generate table and plot:
     python3 gen_alloc_table.py bench_output.txt
 
-    # With custom cpuBaseNs (ns per gas unit, from benchops):
-    python3 gen_alloc_table.py bench_output.txt --cpu-base-ns 10.0
+    # With custom cpuBaseNs (ns per gas unit; default 1.0 = 1 gas = 1 ns):
+    python3 gen_alloc_table.py bench_output.txt --cpu-base-ns 1.0
 """
 import argparse
 import re
@@ -200,8 +200,8 @@ def plot(table_ns, medians, C, alpha, output_path):
 def main():
     parser = argparse.ArgumentParser(description="Generate allocGasTable from Go allocation benchmarks")
     parser.add_argument("bench_file", help="Path to `go test -bench` output file")
-    parser.add_argument("--cpu-base-ns", type=float, default=10.0,
-                       help="Nanoseconds per gas unit (from benchops). Default: 10.0")
+    parser.add_argument("--cpu-base-ns", type=float, default=1.0,
+                       help="Nanoseconds per gas unit. Default: 1.0 (1 gas = 1 ns)")
     parser.add_argument("--plot", default="alloc_gas_model.png",
                        help="Output plot path. Default: alloc_gas_model.png")
     parser.add_argument("--no-plot", action="store_true", help="Skip plot generation")

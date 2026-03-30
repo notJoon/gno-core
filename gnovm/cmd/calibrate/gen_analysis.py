@@ -6,7 +6,7 @@ import sys
 from collections import defaultdict
 import math
 
-CPU_BASE_NS = 5.2
+CPU_BASE_NS = 1.0
 
 def parse_benchmarks(path):
     """Parse benchmark output into {name: [(ns_total, ns_pure, alloc_gas), ...]}"""
@@ -76,15 +76,15 @@ def gas(ns_pure, alloc_gas):
 # ============================================================
 FLAT_OPS = {
     # (benchmark_name, display_name, OpCPU_key)
-    'BenchmarkOpAdd_Int': ('Add (int)', 'Add'),
-    'BenchmarkOpSub_Int': ('Sub (int)', 'Sub'),
-    'BenchmarkOpMul_Int': ('Mul (int)', 'Mul'),
-    'BenchmarkOpQuo_Int': ('Quo (int)', 'Quo'),
+    'BenchmarkOpAdd_Int': ('Add (int)', 'AddInt'),
+    'BenchmarkOpSub_Int': ('Sub (int)', 'SubInt'),
+    'BenchmarkOpMul_Int': ('Mul (int)', 'MulInt'),
+    'BenchmarkOpQuo_Int': ('Quo (int)', 'QuoInt'),
     'BenchmarkOpRem_Int': ('Rem (int)', 'Rem'),
-    'BenchmarkOpAdd_Float64': ('Add (float64)', 'Add'),
-    'BenchmarkOpSub_Float64': ('Sub (float64)', 'Sub'),
-    'BenchmarkOpMul_Float64': ('Mul (float64)', 'Mul'),
-    'BenchmarkOpQuo_Float64': ('Quo (float64)', 'Quo'),
+    'BenchmarkOpAdd_Float64': ('Add (float64)', 'AddFloat'),
+    'BenchmarkOpSub_Float64': ('Sub (float64)', 'SubFloat'),
+    'BenchmarkOpMul_Float64': ('Mul (float64)', 'MulFloat'),
+    'BenchmarkOpQuo_Float64': ('Quo (float64)', 'QuoFloat'),
     'BenchmarkOpBand': ('Band (int)', 'Band'),
     'BenchmarkOpBor': ('Bor (int)', 'Bor'),
     'BenchmarkOpXor': ('Xor (int)', 'Xor'),
@@ -105,9 +105,10 @@ FLAT_OPS = {
     'BenchmarkOpLeq': ('Leq (int)', 'Leq'),
     'BenchmarkOpGtr': ('Gtr (int)', 'Gtr'),
     'BenchmarkOpGeq': ('Geq (int)', 'Geq'),
-    'BenchmarkOpInc_Int': ('Inc (int)', 'Inc'),
-    'BenchmarkOpDec_Int': ('Dec (int)', 'Dec'),
-    'BenchmarkOpDec_Float64': ('Dec (float64)', 'Dec'),
+    'BenchmarkOpInc_Int': ('Inc (int)', 'IncInt'),
+    'BenchmarkOpInc_Float64': ('Inc (float64)', 'IncFloat'),
+    'BenchmarkOpDec_Int': ('Dec (int)', 'DecInt'),
+    'BenchmarkOpDec_Float64': ('Dec (float64)', 'DecFloat'),
     'BenchmarkOpAddAssign_Int': ('AddAssign (int)', 'AddAssign'),
     'BenchmarkOpSubAssign_Int': ('SubAssign (int)', 'SubAssign'),
     'BenchmarkOpMulAssign_Int': ('MulAssign (int)', 'MulAssign'),
@@ -120,15 +121,15 @@ FLAT_OPS = {
     'BenchmarkOpShrAssign_Int': ('ShrAssign (int)', 'ShrAssign'),
     'BenchmarkOpBandnAssign_Int': ('BandnAssign (int)', 'BandnAssign'),
     'BenchmarkOpBody': ('Body', 'Body'),
-    'BenchmarkOpIfCond_True': ('IfCond (true)', 'IfCond'),
-    'BenchmarkOpIfCond_False': ('IfCond (false)', 'IfCond'),
+    'BenchmarkOpIfCond_TrueBranch': ('IfCond (true)', 'IfCond'),
+    'BenchmarkOpIfCond_FalseBranch': ('IfCond (false)', 'IfCond'),
     'BenchmarkOpForLoop_Simple': ('ForLoop (simple)', 'ForLoop'),
     'BenchmarkOpSwitchClause_DefaultMatch': ('SwitchClause (default)', 'SwitchClause'),
     'BenchmarkOpSwitchClauseCase_Match': ('SwitchClauseCase (match)', 'SwitchClauseCase'),
     'BenchmarkOpSwitchClauseCase_Miss': ('SwitchClauseCase (miss)', 'SwitchClauseCase'),
-    'BenchmarkOpPrecall_TypeConversion': ('Precall (type conv)', 'Precall'),
-    'BenchmarkOpPrecall_FuncValue': ('Precall (func)', 'Precall'),
-    'BenchmarkOpPrecall_BoundMethod': ('Precall (bound method)', 'Precall'),
+    'BenchmarkOpPrecall_TypeConversion': ('Precall (type conv)', 'PrecallTypeConv'),
+    'BenchmarkOpPrecall_FuncValue': ('Precall (func)', 'PrecallFunc'),
+    'BenchmarkOpPrecall_BoundMethod': ('Precall (bound method)', 'PrecallBoundMethod'),
     'BenchmarkOpIndex1_Array': ('Index1 (array)', 'Index1'),
     'BenchmarkOpIndex1_Slice': ('Index1 (slice)', 'Index1'),
     'BenchmarkOpIndex1_Map': ('Index1 (map)', 'Index1'),
@@ -140,12 +141,12 @@ FLAT_OPS = {
     'BenchmarkOpStar': ('Star', 'Star'),
     'BenchmarkOpRef': ('Ref', 'Ref'),
     'BenchmarkOpCompositeLit_Array': ('CompositeLit (array)', 'CompositeLit'),
-    'BenchmarkOpSelector_Own': ('Selector (own)', 'Selector'),
-    'BenchmarkOpSelector_VPBlock': ('Selector (VPBlock)', 'Selector'),
-    'BenchmarkOpSelector_Method': ('Selector (method)', 'Selector'),
-    'BenchmarkOpSelector_VPValMethod': ('Selector (VPValMethod)', 'Selector'),
-    'BenchmarkOpConvert_IntToString': ('Convert (int->string)', 'Convert'),
-    'BenchmarkOpConvert_IntToInt64': ('Convert (int->int64)', 'Convert'),
+    'BenchmarkOpSelector_Own': ('Selector (own)', 'SelectorField'),
+    'BenchmarkOpSelector_VPBlock': ('Selector (VPBlock)', 'SelectorField'),
+    'BenchmarkOpSelector_Method': ('Selector (method)', 'SelectorField'),
+    'BenchmarkOpSelector_VPValMethod': ('Selector (VPValMethod)', 'SelectorVPValMethod'),
+    'BenchmarkOpConvert_IntToString': ('Convert (int->string)', 'ConvertNumeric'),
+    'BenchmarkOpConvert_IntToInt64': ('Convert (int->int64)', 'ConvertNumeric'),
     'BenchmarkOpEval_ConstExpr': ('Eval (const)', 'Eval'),
     'BenchmarkOpEval_TypeExpr': ('Eval (type)', 'Eval'),
     'BenchmarkOpBinary1_LAND_True': ('Binary1 (LAND true)', 'Binary1'),
@@ -155,7 +156,7 @@ FLAT_OPS = {
     'BenchmarkOpTypeAssert2_Miss': ('TypeAssert2 (miss)', 'TypeAssert2'),
     'BenchmarkOpCallNativeBody_Len': ('CallNativeBody (len)', 'CallNativeBody'),
     'BenchmarkOpCallNativeBody_Println': ('CallNativeBody (println)', 'CallNativeBody'),
-    'BenchmarkOpCall_Method': ('Call (method)', 'Call'),
+    'BenchmarkOpCall_Method': ('Call (method)', 'CallMethod'),  # separate from parameterized Call base
     'BenchmarkOpReturn': ('Return', 'Return'),
     'BenchmarkOpReturnAfterCopy': ('ReturnAfterCopy', 'ReturnAfterCopy'),
     'BenchmarkOpReturnFromBlock': ('ReturnFromBlock', 'ReturnFromBlock'),
@@ -171,11 +172,11 @@ FLAT_OPS = {
     'BenchmarkOpRangeIterString_10': ('RangeIterString', 'RangeIterString'),  # per-rune op, not per-string
     'BenchmarkOpRangeIterMap_10': ('RangeIterMap', 'RangeIterMap'),  # per-entry op, not per-map
     'BenchmarkOpDefer_10Args': ('Defer', 'Defer'),  # args already on stack
-    'BenchmarkOpSelector_10fields': ('Selector (field)', 'Selector'),  # direct VPField index
+    'BenchmarkOpSelector_10fields': ('Selector (field)', 'SelectorField'),  # direct VPField index
     # CPU-flat because alloc gas covers the O(N) memory cost:
-    'BenchmarkOpAdd_String_10': ('Add (string)', 'Add'),
+    'BenchmarkOpAdd_String_10': ('Add (string)', 'AddString'),
     'BenchmarkOpSlice_String_10': ('Slice (string)', 'Slice'),
-    'BenchmarkOpConvert_StringToBytes_10': ('Convert (str->bytes)', 'Convert'),
+    'BenchmarkOpConvert_StringToBytes_10': ('Convert (str->bytes)', 'ConvertStrBytes'),
 }
 
 # Hand-curated parameterized families
@@ -482,13 +483,8 @@ def main():
         cur = gas_constants.get(opcpu_key, -1)
         flat_rows.append((display, ns_pure, alloc_gas, total_g, cpu_g, cur))
 
-    # Sort by deviation
-    def deviation(row):
-        _, _, _, _, cpu_g, cur = row
-        if cur > 0 and cpu_g > 0:
-            return -abs(math.log(cur / cpu_g))
-        return -999
-    flat_rows.sort(key=deviation)
+    # Sort alphabetically by display name for deterministic output.
+    flat_rows.sort(key=lambda row: row[0])
 
     p('%-50s %8s %8s %8s %8s %8s  %s' % ('Op', 'ns/op', 'Total', 'Alloc', 'CPU', 'CurCPU', ''))
     p('-' * 110)
@@ -664,6 +660,210 @@ def main():
 
     p()
     p('Total unique benchmarks: %d' % len(data))
+
+    # ============================================================
+    # SECTION 9: GO CONSTANT DECLARATIONS
+    # ============================================================
+    p()
+    p('=' * 110)
+    p('SECTION 9: GO CONSTANT DECLARATIONS')
+    p('=' * 110)
+    p()
+    p('// Copy-paste into machine.go. 1 gas = 1 ns on reference hardware.')
+    p('// Generated from op_bench_do_dedicated.txt with CPU_BASE_NS = %.1f' % CPU_BASE_NS)
+    p()
+
+    # Collect max CPU gas per OpCPU key from flat ops.
+    flat_by_key = {}  # key -> (max_cpu_gas, display_name, ns_pure)
+    for bench_name, (display, opcpu_key) in FLAT_OPS.items():
+        s = get_stats(data, bench_name)
+        if s is None:
+            continue
+        ns_pure, alloc_gas = s
+        _, cpu_g = gas(ns_pure, alloc_gas)
+        if opcpu_key not in flat_by_key or cpu_g > flat_by_key[opcpu_key][0]:
+            flat_by_key[opcpu_key] = (cpu_g, display, ns_pure)
+
+    # Mapping from parameterized family display name to (Go base name, Go slope name).
+    PARAM_GO_NAMES = {
+        'MapLit':                   ('MapLit',          'MapLit'),
+        'ArrayLit (int)':           ('ArrayLit',        'ArrayLit'),
+        'ArrayLit (uint8)':         (None,              None),  # shares ArrayLit constant (use max)
+        'SliceLit':                 ('SliceLit',        'SliceLit'),
+        'SliceLit2 (sparse)':       ('SliceLit2',       'SliceLit2'),
+        'StructLit (unnamed)':      (None,              None),  # shares StructLit constant
+        'StructLit (named)':        ('StructLit',       'StructLit'),  # use named (higher)
+        'Define':                   ('Define',          'Define'),
+        'Assign':                   ('Assign',          'Assign'),
+        'Call (params, 0 captures)':(None,              'CallParam'),  # base is OpCPUCall in code, set manually
+        'Call (0 params, captures)': (None,             'CallCapture'),
+        'FuncLit (captures)':       ('FuncLit',         'FuncLit'),
+        'ForLoop (heap copy)':      ('ForLoop',         'ForLoopHeap'),
+        'RangeIter (array)':        ('RangeIter',       'RangeIterArray'),
+        'ReturnCallDefers':         ('ReturnCallDefers','ReturnCallDefers'),
+        'TypeSwitch (concrete)':    ('TypeSwitch',      'TypeSwitchCase'),
+        'TypeSwitch (interface)':   (None,              None),  # handled separately
+        'TypeAssert1 (interface)':  (None,              'TypeAssertIface'),
+        'TypeAssert2 (iface hit)':  (None,              None),  # shares TypeAssertIface
+        'Selector (VPInterface)':   ('SelectorInterface','SelectorIface'),
+        'Eval (NameExpr depth)':    ('Eval',            'EvalNameExpr'),
+        'Convert (str->runes)':     (None,              'ConvertStrRunes'),
+        'Convert (runes->str)':     (None,              'ConvertRunesStr'),
+        'Eql (array of int)':       (None,              'EqlArray'),
+        'Eql (struct of int)':      (None,              'EqlStruct'),
+        'Eql (byte array)':         (None,              None),  # negligible slope
+        'Eql (string)':             (None,              None),  # flat
+        'Lss (string)':             (None,              None),  # negligible slope
+        'StructType':               ('StructType',      'StructType'),
+        'InterfaceType':            ('InterfaceType',   'InterfaceType'),
+        'FuncType (params, 0 results)': ('FuncType',    'FuncType'),
+        'FuncType (0 params, results)': (None,          None),  # shares FuncType
+        'ValueDecl (array)':        (None,              'ValueDecl'),
+    }
+
+    BIGINT_GO_NAMES = {
+        'Add (BigInt)':             'BigIntAdd',
+        'Sub (BigInt)':             'BigIntSub',
+        'Mul (BigInt) [same width]':'BigIntMulQ',  # quadratic, special
+        'Mul (BigInt) [cross width]': None,         # skip
+        'Quo (BigInt)':             'BigIntQuoQ',   # quadratic, special
+        'Rem (BigInt)':             'BigIntRemQ',   # quadratic, special
+        'Shl (BigInt)':             'BigIntShl',
+        'Shr (BigInt)':             'BigIntShr',
+        'Eql (BigInt)':             'BigIntEql',
+        'Lss (BigInt)':             'BigIntLss',
+        'Band (BigInt)':            'BigIntBand',
+        'Bor (BigInt)':             'BigIntBor',
+        'Xor (BigInt)':             'BigIntXor',
+        'Bandn (BigInt)':           'BigIntBandn',
+        'Uneg (BigInt)':            'BigIntUneg',
+        'Uxor (BigInt)':            'BigIntUxor',
+        'Inc (BigInt)':             'BigIntInc',
+        'Dec (BigInt)':             'BigIntDec',
+    }
+
+    BIGDEC_GO_NAMES = {
+        'Add (BigDec)':  'BigDecAdd',
+        'Sub (BigDec)':  'BigDecSub',
+        'Mul (BigDec)':  'BigDecMul',
+        'Quo (BigDec)':  'BigDecQuo',
+        'Uneg (BigDec)': 'BigDecUneg',
+        'Inc (BigDec)':  'BigDecInc',
+        'Dec (BigDec)':  'BigDecDec',
+    }
+
+    p('const (')
+
+    # --- Flat constants ---
+    p('\t/* Flat constants (max across variants) */')
+    for key in sorted(flat_by_key.keys()):
+        cpu_g, display, ns_pure = flat_by_key[key]
+        p('\tOpCPU%-25s = %4d // %s (%.1f ns)' % (key, round(cpu_g), display, ns_pure))
+
+    # --- Parameterized bases and slopes ---
+    p()
+    p('\t/* Parameterized base constants (from linear fit) */')
+    param_fits = {}  # family_name -> (base, slope, r2, label)
+    for display_name, label, benchmarks in PARAM_FAMILIES:
+        points = []
+        for bench_name, n_val in benchmarks:
+            s = get_stats(data, bench_name)
+            if s is None: continue
+            ns_pure, alloc_gas = s
+            _, cpu_g = gas(ns_pure, alloc_gas)
+            points.append((n_val, cpu_g))
+        if len(points) < 2:
+            continue
+        a, b, r2 = least_squares(points)
+        param_fits[display_name] = (max(0, a), b, r2, label)
+        names = PARAM_GO_NAMES.get(display_name, (None, None))
+        if names and names[0]:
+            base_name = names[0]
+            p('\tOpCPU%-25s = %4d // base; per-%s slope added in handler (fit: %.1f)' % (
+                base_name, max(0, round(a)), label, a))
+
+    p()
+    p('\t/* Parameterized slope constants */')
+    for display_name, label, benchmarks in PARAM_FAMILIES:
+        if display_name not in param_fits:
+            continue
+        a, b, r2, label = param_fits[display_name]
+        names = PARAM_GO_NAMES.get(display_name, (None, None))
+        if names and names[1]:
+            slope_name = names[1]
+            slope_val = round(b) if abs(b) >= 0.5 else b
+            if isinstance(slope_val, float):
+                p('\tOpCPUSlope%-20s = %.4f // per %s (fit: %.4f, R²=%.4f)' % (
+                    slope_name, slope_val, label, b, r2))
+            else:
+                p('\tOpCPUSlope%-20s = %4d // per %s (fit: %.1f, R²=%.4f)' % (
+                    slope_name, slope_val, label, b, r2))
+
+    # --- BigInt slopes ---
+    p()
+    p('\t// BigInt per-kilobit slopes: gas = bits * slope / 1024.')
+    BIGINT_QUADRATIC = {'BigIntMulQ', 'BigIntQuoQ', 'BigIntRemQ'}
+    for display_name, benchmarks in BIGINT_FAMILIES:
+        go_name = BIGINT_GO_NAMES.get(display_name)
+        if go_name is None:
+            continue
+        points = []
+        for bench_name, n_val in benchmarks:
+            s = get_stats(data, bench_name)
+            if s is None: continue
+            ns_pure, alloc_gas = s
+            _, cpu_g = gas(ns_pure, alloc_gas)
+            points.append((n_val, cpu_g))
+        if len(points) < 2:
+            continue
+        if go_name in BIGINT_QUADRATIC:
+            # Quadratic fit: ns = a + b * Q where Q = (bits/32)^2 / 32
+            q_points = [((x/32)**2/32, y) for x, y in points]
+            a_q, b_q, r2_q = least_squares(q_points)
+            slope_val = max(1, round(b_q))
+            p('\t// Quadratic: gas = (bits/32)^2 * slope / 32.')
+            p('\tOpCPUSlope%-20s = %4d // quadratic fit: slope=%.2f, intercept=%.0f' % (
+                go_name, slope_val, b_q, a_q))
+        else:
+            a, b, r2 = least_squares(points)
+            slope_per_kb = b * 1024
+            # Use absolute value for negative slopes (anomalous data).
+            slope_val = round(abs(slope_per_kb))
+            p('\tOpCPUSlope%-20s = %4d // %.4f ns/bit * 1024 = %.1f' % (
+                go_name, slope_val, abs(b), abs(slope_per_kb)))
+
+    # --- BigDec slopes ---
+    p()
+    p('\t// BigDec per-digit slopes: gas = digits * slope / 100.')
+    BIGDEC_QUADRATIC = {'BigDecMul', 'BigDecQuo'}
+    for display_name, benchmarks in BIGDEC_FAMILIES:
+        go_name = BIGDEC_GO_NAMES.get(display_name)
+        if go_name is None:
+            continue
+        points = []
+        for bench_name, n_val in benchmarks:
+            s = get_stats(data, bench_name)
+            if s is None: continue
+            ns_pure, alloc_gas = s
+            _, cpu_g = gas(ns_pure, alloc_gas)
+            points.append((n_val, cpu_g))
+        if len(points) < 2:
+            continue
+        if go_name in BIGDEC_QUADRATIC:
+            # Quadratic fit: ns = a + b * Q where Q = (digits/10)^2 / 10
+            q_points = [((x/10)**2/10, y) for x, y in points]
+            a_q, b_q, r2_q = least_squares(q_points)
+            slope_val = max(1, round(b_q))
+            p('\t// Quadratic: gas = (digits/10)^2 * slope / 10.')
+            p('\tOpCPUSlope%-20s = %4d // quadratic fit: slope=%.2f, intercept=%.0f' % (
+                go_name + 'Q', slope_val, b_q, a_q))
+        else:
+            a, b, r2 = least_squares(points)
+            slope_per_100 = b * 100
+            p('\tOpCPUSlope%-20s = %4d // %.4f ns/digit * 100 = %.1f' % (
+                go_name, round(slope_per_100), b, slope_per_100))
+
+    p(')')
 
     report = '\n'.join(out)
     print(report)

@@ -8,7 +8,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
-CPU_BASE_NS = 5.2
+CPU_BASE_NS = 1.0
 
 def parse_benchmarks(path):
     data = {}
@@ -255,7 +255,7 @@ def main():
                              figsize=(ncols * 3.5, total_rows * 2.8),
                              gridspec_kw={'height_ratios':
                                  [1]*param_rows + [0.15] + [1]*flat_rows})
-    fig.suptitle('GnoVM Op Gas Calibration — CPU Gas vs Parameter Size\n(cpuBaseNs=5.2, Xeon 8168)',
+    fig.suptitle('GnoVM Op Gas Calibration — CPU Gas vs Parameter Size\n(1 gas = 1 ns, Xeon 8168)',
                  fontsize=14, fontweight='bold', y=0.995)
 
     axes_flat_arr = axes.flatten()

@@ -152,9 +152,9 @@ func init() {
 }
 
 // allocGasTable[k] = gas for a Go heap allocation of 2^k bytes.
+// 1 gas = 1 nanosecond on reference hardware.
 // Calibrated from Go 1.24 / linux / amd64 benchmarks on DigitalOcean Dedicated (2-core).
 // CPU: Intel Xeon Platinum 8168 @ 2.70GHz.
-// cpuBaseNs = 5.2 ns/gas (weighted average from benchops on same hardware).
 //
 // Model: entries [0]-[5] (1B-32B) are exact benchmark medians. Entries [6]-[30]
 // use a power-law fit: ns = 0.47 × size^0.925 (straight line in log-log space).
@@ -162,38 +162,38 @@ func init() {
 //
 // See gnovm/cmd/calibrate/ for benchmarks, data, and regeneration instructions.
 var allocGasTable = [32]int64{
-	2,        // 2^0  =       1B   (12ns)
-	2,        // 2^1  =       2B   (13ns)
-	2,        // 2^2  =       4B   (13ns)
-	2,        // 2^3  =       8B   (15ns)
-	4,        // 2^4  =      16B   (23ns)
-	5,        // 2^5  =      32B   (27ns)
-	5,        // 2^6  =      64B   (36ns)
-	8,        // 2^7  =     128B   (52ns)
-	15,       // 2^8  =     256B   (82ns)
-	29,       // 2^9  =     512B   (145ns)
-	55,       // 2^10 =      1KB   (241ns)
-	104,      // 2^11 =      2KB   (458ns)
-	198,      // 2^12 =      4KB   (848ns)
-	377,      // 2^13 =      8KB   (1637ns)
-	716,      // 2^14 =     16KB   (2798ns)
-	1359,     // 2^15 =     32KB   (5520ns)
-	2580,     // 2^16 =     64KB   (10611ns)
-	4899,     // 2^17 =    128KB   (23513ns)
-	9301,     // 2^18 =    256KB   (49114ns)
-	17659,    // 2^19 =    512KB   (75155ns)
-	33524,    // 2^20 =      1MB   (195342ns)
-	63644,    // 2^21 =      2MB   (171176ns)
-	120826,   // 2^22 =      4MB   (275629ns)
-	229381,   // 2^23 =      8MB   (1188110ns)
-	435468,   // 2^24 =     16MB   (2544343ns)
-	826711,   // 2^25 =     32MB   (4987722ns)
-	1569463,  // 2^26 =     64MB   (9789111ns)
-	2979536,  // 2^27 =    128MB   (19398830ns)
-	5656479,  // 2^28 =    256MB   (38412058ns)
-	10738500, // 2^29 =    512MB   (76146343ns)
-	20386424, // 2^30 =      1GB   (153376629ns)
-	38702454, // 2^31 =      2GB   (power-law extrapolation)
+	12,        // 2^0  =       1B   (12ns)
+	13,        // 2^1  =       2B   (13ns)
+	13,        // 2^2  =       4B   (13ns)
+	15,        // 2^3  =       8B   (15ns)
+	23,        // 2^4  =      16B   (23ns)
+	27,        // 2^5  =      32B   (27ns)
+	36,        // 2^6  =      64B   (36ns)
+	52,        // 2^7  =     128B   (52ns)
+	82,        // 2^8  =     256B   (82ns)
+	145,       // 2^9  =     512B   (145ns)
+	241,       // 2^10 =      1KB   (241ns)
+	458,       // 2^11 =      2KB   (458ns)
+	848,       // 2^12 =      4KB   (848ns)
+	1637,      // 2^13 =      8KB   (1637ns)
+	2798,      // 2^14 =     16KB   (2798ns)
+	5520,      // 2^15 =     32KB   (5520ns)
+	10611,     // 2^16 =     64KB   (10611ns)
+	23513,     // 2^17 =    128KB   (23513ns)
+	49114,     // 2^18 =    256KB   (49114ns)
+	75155,     // 2^19 =    512KB   (75155ns)
+	195342,    // 2^20 =      1MB   (195342ns)
+	195342,    // 2^21 =      2MB   (bench: 171176ns, clamped to entry[20] for monotonicity)
+	275629,    // 2^22 =      4MB   (275629ns)
+	1188110,   // 2^23 =      8MB   (1188110ns)
+	2544343,   // 2^24 =     16MB   (2544343ns)
+	4987722,   // 2^25 =     32MB   (4987722ns)
+	9789111,   // 2^26 =     64MB   (9789111ns)
+	19398830,  // 2^27 =    128MB   (19398830ns)
+	38412058,  // 2^28 =    256MB   (38412058ns)
+	76146343,  // 2^29 =    512MB   (76146343ns)
+	153376629, // 2^30 =      1GB   (153376629ns)
+	291415595, // 2^31 =      2GB   (power-law extrapolation: ~1.9x from 1GB)
 }
 
 // allocGas returns the gas cost for a heap allocation of the given size

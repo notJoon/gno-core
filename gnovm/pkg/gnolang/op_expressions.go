@@ -66,6 +66,20 @@ func (m *Machine) doOpIndex2() {
 func (m *Machine) doOpSelector() {
 	sx := m.PopExpr().(*SelectorExpr)
 	xv := m.PeekValue(1) // the base .X -- package, struct, etc.
+	// Charge gas based on selector variant.
+	switch sx.Path.Type {
+	case VPInterface, VPDerefInterface:
+		// Interface dispatch cost scales with number of methods.
+		if it, ok := baseOf(xv.T).(*InterfaceType); ok {
+			m.incrCPU(OpCPUSelectorInterface + int64(len(it.Methods))*OpCPUSlopeSelectorIface)
+		} else {
+			m.incrCPU(OpCPUSelectorInterface)
+		}
+	case VPValMethod, VPDerefValMethod, VPPtrMethod, VPDerefPtrMethod:
+		m.incrCPU(OpCPUSelectorVPValMethod)
+	default:
+		m.incrCPU(OpCPUSelectorField)
+	}
 	ro := m.IsReadonly(xv)
 	res := xv.GetPointerToFromTV(m.Alloc, m.Store, sx.Path).Deref()
 	if debug {
@@ -697,6 +711,16 @@ func (m *Machine) doOpFuncLit() {
 func (m *Machine) doOpConvert() {
 	xv := m.PopValue().Copy(m.Alloc)
 	t := m.PopValue().GetType()
+
+	// Gas based on conversion variant.
+	// string<->[]byte both allocate and copy, so charge the same.
+	if xv.T != nil && xv.T.Kind() == StringKind && t.Kind() == SliceKind {
+		m.incrCPU(OpCPUConvertStrBytes) // string -> []byte
+	} else if xv.T != nil && xv.T.Kind() == SliceKind && t.Kind() == StringKind {
+		m.incrCPU(OpCPUConvertStrBytes) // []byte -> string
+	} else {
+		m.incrCPU(OpCPUConvertNumeric)
+	}
 
 	// BEGIN conversion checks
 	// These protect against inter-realm conversion exploits.
