@@ -349,40 +349,39 @@ func BenchmarkStorePebbleGetCacheSweep(b *testing.B) {
 
 	for _, mb := range cacheSizes {
 		mb := mb
+
+		// Open DB and warmup outside b.Run so it happens once per cache size.
+		opts := pebbledb.DefaultPebbleOptions()
+		cache := pebble.NewCache(int64(mb) << 20)
+		opts.Cache = cache
+		opts.Logger = noopLogger{}
+
+		db, err := pebbledb.NewPebbleDBWithOpts("bench", dir, opts)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		// Warmup: random reads to fill the cache.
+		// Each read loads a 4KB block (~15 KVs), so read enough
+		// to fill the cache capacity.
+		warmupReads := int(int64(mb) << 20 / 4096)
+		if warmupReads > n {
+			warmupReads = n
+		}
+		rng := rand.New(rand.NewSource(99))
+		for i := 0; i < warmupReads; i++ {
+			key := make([]byte, 8)
+			binary.BigEndian.PutUint64(key, uint64(rng.Intn(n)))
+			db.Get(key)
+			if (i+1)%10000 == 0 {
+				printProgress(fmt.Sprintf("warmup %dMB", mb), i+1, warmupReads)
+			}
+		}
+		printProgress(fmt.Sprintf("warmup %dMB", mb), warmupReads, warmupReads)
+
 		b.Run(fmt.Sprintf("cache=%dMB/keys=%d", mb, n), func(b *testing.B) {
-			opts := pebbledb.DefaultPebbleOptions()
-			cache := pebble.NewCache(int64(mb) << 20)
-			defer cache.Unref()
-			opts.Cache = cache
-			opts.Logger = noopLogger{}
-
-			db, err := pebbledb.NewPebbleDBWithOpts("bench", dir, opts)
-			if err != nil {
-				b.Fatal(err)
-			}
-			defer db.Close()
-
-			// Warmup: random reads to fill the cache.
-			// Each read loads a 4KB block (~15 KVs), so read enough
-			// to fill the cache capacity.
-			warmupReads := int(int64(mb) << 20 / 4096)
-			if warmupReads > n {
-				warmupReads = n
-			}
-			rng := rand.New(rand.NewSource(99))
-			for i := 0; i < warmupReads; i++ {
-				key := make([]byte, 8)
-				binary.BigEndian.PutUint64(key, uint64(rng.Intn(n)))
-				db.Get(key)
-				if (i+1)%10000 == 0 {
-					printProgress(fmt.Sprintf("warmup %dMB", mb), i+1, warmupReads)
-				}
-			}
-			printProgress(fmt.Sprintf("warmup %dMB", mb), warmupReads, warmupReads)
-
-			rng = rand.New(rand.NewSource(42))
+			rng := rand.New(rand.NewSource(42))
 			var sink []byte
-			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				key := make([]byte, 8)
 				binary.BigEndian.PutUint64(key, uint64(rng.Intn(n)))
@@ -390,5 +389,8 @@ func BenchmarkStorePebbleGetCacheSweep(b *testing.B) {
 			}
 			runtime.KeepAlive(sink)
 		})
+
+		db.Close()
+		cache.Unref()
 	}
 }
