@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ var (
 const tmpFile = "benchmark.bin"
 
 func main() {
+	fmt.Println("THIS TOOL IS DEPRECATED, SEE 'gnovm/cmd/calibrate' INSTEAD")
 	runtime.GOMAXPROCS(1) // for consistent benchmarking
 	flag.Parse()
 	if *binFlag != "" {

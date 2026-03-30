@@ -1,5 +1,7 @@
 # `gnobench`  the time consumed for GnoVM OpCode execution and store access
 
+_THIS TOOL IS DEPRECATED. SEE 'gnovm/cmd/calibrate' INSTEAD._
+
 `gnobench` benchmarks the time consumed for each VM CPU OpCode and persistent access to the store, including marshalling and unmarshalling of realm objects.
 
 ## Usage
