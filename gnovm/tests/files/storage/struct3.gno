@@ -42,7 +42,7 @@ func main() {
 // aa:aa:aa
 
 // Storage:
-// gno.land/r/storage: 157
+// gno.land/r/storage: 154
 
 // Realm:
 // finalizerealm["gno.land/r/storage"]
@@ -82,7 +82,7 @@ func main() {
 //              "OwnerID": "34f997a9ca158338c03cfc00686d77220a6cf62f:15",
 //              "RefCount": "1"
 //          }
-// u[34f997a9ca158338c03cfc00686d77220a6cf62f:6](138)=
+// u[34f997a9ca158338c03cfc00686d77220a6cf62f:6](135)=
 //     @@ -2,7 +2,7 @@
 //          "ObjectInfo": {
 //              "ID": "34f997a9ca158338c03cfc00686d77220a6cf62f:6",
@@ -92,7 +92,7 @@ func main() {
 //              "OwnerID": "34f997a9ca158338c03cfc00686d77220a6cf62f:2",
 //              "RefCount": "1"
 //          },
-//     @@ -13,6 +13,16 @@
+//     @@ -13,6 +13,15 @@
 //                      "@type": "/gno.RefType",
 //                      "ID": "gno.land/r/storage.Foo"
 //                  }
@@ -101,7 +101,6 @@ func main() {
 //     +            "@type": "/gno.PointerValue",
 //     +            "Base": {
 //     +                "@type": "/gno.RefValue",
-//     +                "Escaped": true,
 //     +                "ObjectID": "34f997a9ca158338c03cfc00686d77220a6cf62f:15"
 //     +            },
 //     +            "Index": "0",

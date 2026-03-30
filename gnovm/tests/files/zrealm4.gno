@@ -56,7 +56,7 @@ func main(cur realm) {
 //                  "@type": "/gno.PointerValue",
 //                  "Base": {
 //                      "@type": "/gno.RefValue",
-//     -                "Hash": "9ca98fdf0502999046966e61b84ad729e39753e7",
+//     -                "Hash": "40d48fc9265c6f4f740db5f1debb3f465684ec64",
 //                      "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:7"
 //                  },
 //                  "Index": "0",

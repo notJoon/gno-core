@@ -155,7 +155,7 @@ func main() {
 //     -            "@type": "/gno.PointerValue",
 //     -            "Base": {
 //     -                "@type": "/gno.RefValue",
-//     -                "Hash": "ca7da93d48d5cf7282da3ef614d9a6718a9a9b4f",
+//     -                "Hash": "62723026ca278547b47a2fc04d84860e71f18865",
 //     -                "ObjectID": "34f997a9ca158338c03cfc00686d77220a6cf62f:11"
 //     -            },
 //     -            "Index": "0",

@@ -53,7 +53,7 @@ const (
 	// By-value types (value receivers on Value interface).
 	// Escape to heap when stored in TypedValue.V.
 	_allocPointerValue = 32 // unsafe.Sizeof(PointerValue{})
-	_allocRefValue     = 80 // unsafe.Sizeof(RefValue{})
+	_allocRefValue     = 72 // unsafe.Sizeof(RefValue{})
 	_allocTypeValue    = 16 // unsafe.Sizeof(TypeValue{})
 	_allocTypedValue   = 40 // unsafe.Sizeof(TypedValue{})
 
@@ -118,7 +118,7 @@ const (
 	allocHeapItem    = _allocHeap + _allocHeapItemValue
 	allocPackage     = _allocHeap + _allocPackageValue
 
-	// RefValue (80 bytes, by value, escapes to heap via interface).
+	// RefValue (72 bytes, by value, escapes to heap via interface).
 	allocRefValue = _allocHeap + _allocRefValue
 	// RefNode (88 bytes, by value).
 	allocRefNode = _allocHeap + _allocRefNode

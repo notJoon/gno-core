@@ -1715,7 +1715,6 @@ func toRefValue(val Value) RefValue {
 			// NOTE: oo.GetOwnerID() will become zero.
 			return RefValue{
 				ObjectID: oo.GetObjectID(),
-				Escaped:  true,
 				// Hash: nil,
 			}
 		} else if oo.GetIsEscaped() {
@@ -1726,7 +1725,6 @@ func toRefValue(val Value) RefValue {
 			}
 			return RefValue{
 				ObjectID: oo.GetObjectID(),
-				Escaped:  true,
 				// Hash: nil,
 			}
 		} else {

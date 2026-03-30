@@ -98,9 +98,9 @@ func main(cur realm,) {
 //                  "@type": "/gno.PointerValue",
 //                  "Base": {
 //                      "@type": "/gno.RefValue",
-//     -                "Hash": "477e1546db4d3a70091c73a992039811bc2666fe",
+//     -                "Hash": "4455e3128f9519966eef9b90a79804d55a8af527",
 //     -                "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:7"
-//     +                "Hash": "d8185ab144b70c0fec8cbda653cabee29619a499",
+//     +                "Hash": "2b04facb318fac37e5180a0d55648e0b6a6be45d",
 //     +                "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:9"
 //                  },
 //                  "Index": "0",

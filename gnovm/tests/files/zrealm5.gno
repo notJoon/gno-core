@@ -118,7 +118,7 @@ func main(cur realm) {
 //     +                "@type": "/gno.PointerValue",
 //     +                "Base": {
 //     +                    "@type": "/gno.RefValue",
-//     +                    "Hash": "cf4e0d844e8a0a27351c334db77c947def897a68",
+//     +                    "Hash": "41555745b5cd9c6d47815feeba96d49c7f496d8f",
 //     +                    "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:9"
 //     +                },
 //     +                "Index": "0",
@@ -148,7 +148,7 @@ func main(cur realm) {
 //                  "@type": "/gno.PointerValue",
 //                  "Base": {
 //                      "@type": "/gno.RefValue",
-//     -                "Hash": "9ca98fdf0502999046966e61b84ad729e39753e7",
+//     -                "Hash": "40d48fc9265c6f4f740db5f1debb3f465684ec64",
 //                      "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:7"
 //                  },
 //                  "Index": "0",
@@ -167,7 +167,7 @@ func main(cur realm) {
 //              "V": {
 //                  "@type": "/gno.RefValue",
 //     -            "Hash": "ff7d2f7d23827a0af50e33994bc896d1b1ab3ea8",
-//     +            "Hash": "7b90ae428f0f4f7139b46482baa3ca597e6bcf2f",
+//     +            "Hash": "11a38567c9143650f0a5a0ed4415d7855d293465",
 //                  "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:8"
 //              }
 //          }

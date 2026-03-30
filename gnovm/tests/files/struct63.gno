@@ -70,9 +70,9 @@ func main() {
 //                  },
 //                  "V": {
 //                      "@type": "/gno.RefValue",
-//     -                "Hash": "0838a9b6bc9a600cf3efff9dd11c009eda1a6cc2",
+//     -                "Hash": "1fd36417177aea9a1c497135645769b1228a43ee",
 //     -                "ObjectID": "f9b6b63cc3f789fda754d95769bbf99bf64c5cb4:6"
-//     +                "Hash": "6a3c6de5e326bc3f5905a4223efd057103f1eec0",
+//     +                "Hash": "4f2e1ce0434fbc3f3dd49c10c8823bed0c407ab4",
 //     +                "ObjectID": "f9b6b63cc3f789fda754d95769bbf99bf64c5cb4:10"
 //                  }
 //              }

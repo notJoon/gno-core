@@ -19,7 +19,7 @@ func main(cur realm,) {
 
 // Realm:
 // finalizerealm["gno.land/r/test"]
-// u[a8ada09dee16d791fd406d629fe29bb0ed084a30:4](137)=
+// u[a8ada09dee16d791fd406d629fe29bb0ed084a30:4](134)=
 //     @@ -2,7 +2,7 @@
 //          "ObjectInfo": {
 //              "ID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:4",
@@ -29,7 +29,7 @@ func main(cur realm,) {
 //              "OwnerID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:2",
 //              "RefCount": "1"
 //          },
-//     @@ -13,6 +13,16 @@
+//     @@ -13,6 +13,15 @@
 //                      "@type": "/gno.RefType",
 //                      "ID": "gno.land/r/test.S"
 //                  }
@@ -38,7 +38,6 @@ func main(cur realm,) {
 //     +            "@type": "/gno.PointerValue",
 //     +            "Base": {
 //     +                "@type": "/gno.RefValue",
-//     +                "Escaped": true,
 //     +                "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:8"
 //     +            },
 //     +            "Index": "0",

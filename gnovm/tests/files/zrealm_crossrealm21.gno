@@ -22,8 +22,8 @@ func main(cur realm) {
 
 // Realm:
 // finalizerealm["gno.land/r/tests/vm/crossrealm"]
-// u[a7e973c6aeab1f1cb747d0903cb1e4d369226376:7](217)=
-//     @@ -2,9 +2,28 @@
+// u[a7e973c6aeab1f1cb747d0903cb1e4d369226376:7](214)=
+//     @@ -2,9 +2,27 @@
 //          "ObjectInfo": {
 //              "ID": "a7e973c6aeab1f1cb747d0903cb1e4d369226376:7",
 //              "LastObjectSize": "190",
@@ -46,7 +46,6 @@ func main(cur realm) {
 //     +            "@type": "/gno.PointerValue",
 //     +            "Base": {
 //     +                "@type": "/gno.RefValue",
-//     +                "Escaped": true,
 //     +                "ObjectID": "46279d1e03ecb38b84822f9caf584bd16913470d:4"
 //     +            },
 //     +            "Index": "0",

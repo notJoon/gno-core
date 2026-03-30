@@ -44,7 +44,7 @@ func main(cur realm,) {
 //     -                "@type": "/gno.PointerValue",
 //     -                "Base": {
 //     -                    "@type": "/gno.RefValue",
-//     -                    "Hash": "ff7ee2df0e65a933be3dce7550bf361d29e83bc0",
+//     -                    "Hash": "f8ae23e792fe87be8116be6c00e66166c79eb9dc",
 //     -                    "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:11"
 //     -                },
 //     -                "Index": "0",
@@ -74,4 +74,4 @@ func main(cur realm,) {
 //          "Value": {
 //              "T": {
 // d[a8ada09dee16d791fd406d629fe29bb0ed084a30:11](-335)
-// d[a8ada09dee16d791fd406d629fe29bb0ed084a30:12](-444)
+// d[a8ada09dee16d791fd406d629fe29bb0ed084a30:12](-441)

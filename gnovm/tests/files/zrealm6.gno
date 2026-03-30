@@ -119,7 +119,7 @@ func main(cur realm) {
 //     +                "@type": "/gno.PointerValue",
 //     +                "Base": {
 //     +                    "@type": "/gno.RefValue",
-//     +                    "Hash": "be0c498278f0f3da9527e564840e5b7bb427c5d1",
+//     +                    "Hash": "3751cf502d18890818cbec892779f223ec922a76",
 //     +                    "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:11"
 //     +                },
 //     +                "Index": "0",
@@ -149,7 +149,7 @@ func main(cur realm) {
 //                      "@type": "/gno.PointerValue",
 //                      "Base": {
 //                          "@type": "/gno.RefValue",
-//     -                    "Hash": "cf4e0d844e8a0a27351c334db77c947def897a68",
+//     -                    "Hash": "41555745b5cd9c6d47815feeba96d49c7f496d8f",
 //                          "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:9"
 //                      },
 //                      "Index": "0",
@@ -177,7 +177,7 @@ func main(cur realm) {
 //              "V": {
 //                  "@type": "/gno.RefValue",
 //     -            "Hash": "e7ac59063098152f2e2a716cc34c412b5d3a1673",
-//     +            "Hash": "8a9607e1ef11d8991afeb2e0004602310e63d581",
+//     +            "Hash": "b6260109680974ecd99147c87b4137cd2fa298ba",
 //                  "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:10"
 //              }
 //          }
@@ -195,7 +195,7 @@ func main(cur realm) {
 //                  "@type": "/gno.PointerValue",
 //                  "Base": {
 //                      "@type": "/gno.RefValue",
-//     -                "Hash": "4831ee01b39c1810a4c0047498b1d8628ea9e3e1",
+//     -                "Hash": "ebcf5fc65f39a27f06dffc28105573ee2801e029",
 //                      "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:7"
 //                  },
 //                  "Index": "0",
@@ -213,8 +213,8 @@ func main(cur realm) {
 //              },
 //              "V": {
 //                  "@type": "/gno.RefValue",
-//     -            "Hash": "7cfcce4b3888122b46444982a082ab0ce4ca98b3",
-//     +            "Hash": "1803690c8f6884915f84d0ebff3e601c862f10ed",
+//     -            "Hash": "8c2515bcec8460ec3500767ced671ec2d5c1c7f1",
+//     +            "Hash": "51374afaf0a43c6edceb494ad7f01742176d7adc",
 //                  "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:8"
 //              }
 //          }

@@ -87,7 +87,7 @@ func main() {
 //         },
 //         "V": {
 //             "@type": "/gno.RefValue",
-//             "Hash": "e757ea3d88983d3fc397e089882a1e31ee2c5e10",
+//             "Hash": "96b285f2bb2340b0a4560f1df367e43ae41a688a",
 //             "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:7"
 //         }
 //     }
@@ -111,7 +111,7 @@ func main() {
 //     +            "@type": "/gno.PointerValue",
 //     +            "Base": {
 //     +                "@type": "/gno.RefValue",
-//     +                "Hash": "afc8a8a4c127ea7b6713ec59220d7c6cdd6e842e",
+//     +                "Hash": "95c2996b9deeee6cc3c5a2fc5550ecb24195f772",
 //     +                "ObjectID": "a8ada09dee16d791fd406d629fe29bb0ed084a30:6"
 //     +            },
 //     +            "Index": "0",
