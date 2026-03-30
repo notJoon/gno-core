@@ -23,9 +23,9 @@ echo ""
 IFS=',' read -ra CACHE_LIST <<< "$CACHES"
 for mb in "${CACHE_LIST[@]}"; do
     echo "--- cache=${mb}MB ---"
-    go test -bench="PebbleGet/keys=${KEYS}" \
+    go test ./gnovm/cmd/benchstore/ \
+        -bench="PebbleGet/keys=${KEYS}" \
         -benchmem -benchtime=5s -timeout=2h -count=1 \
-        -cache-mb="$mb" -max-keys="$KEYS" \
-        ./gnovm/cmd/benchstore/ 2>&1
+        -cache-mb="$mb" -max-keys="$KEYS" 2>&1
     echo ""
 done
