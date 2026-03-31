@@ -45,7 +45,7 @@ var (
 	flagSweepKeys   = flag.Int("sweep-keys", 100_000_000, "Number of keys for GetCacheSweep benchmark")
 )
 
-var keySizes = []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000}
+var keySizes = []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 500_000_000, 750_000_000, 1_000_000_000}
 
 func requireDB(b *testing.B) {
 	b.Helper()
