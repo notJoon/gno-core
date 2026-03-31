@@ -1,15 +1,20 @@
 package benchstore
 
-// Raw PebbleDB benchmarks measuring the backing DB cost
-// that the GnoVM store sits on.
+// Storage benchmarks for comparing DB backends (PebbleDB vs LMDB).
 //
-// Run with:
+// Usage:
 //
-//	go test -bench=. ./gnovm/cmd/benchstore/ -benchmem -timeout=30m
+//	go test ./gnovm/cmd/benchstore/ -bench=. -benchmem -timeout=30m -db=pebbledb
+//	go test ./gnovm/cmd/benchstore/ -bench=. -benchmem -timeout=30m -db=lmdb
 //
-// Override defaults:
+// PebbleDB options:
 //
-//	go test -bench=. ./gnovm/cmd/benchstore/ -cache-mb=1024 -memtable-mb=128 -compactions=4
+//	-cache-mb=1024 -memtable-mb=128 -compactions=4
+//
+// Cache sweep (PebbleDB only):
+//
+//	go test ./gnovm/cmd/benchstore/ -bench=GetCacheSweep -timeout=6h \
+//	    -db=pebbledb -sweep-keys=100000000 -cache-sweep=500,1024,2048,4096,8192
 
 import (
 	"encoding/binary"
@@ -21,13 +26,17 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/cockroachdb/pebble"
+	dbm "github.com/gnolang/gno/tm2/pkg/db"
+	"github.com/gnolang/gno/tm2/pkg/db/lmdbdb"
 	"github.com/gnolang/gno/tm2/pkg/db/pebbledb"
 )
 
 var (
+	flagDB          = flag.String("db", "", "Database backend: pebbledb or lmdb (required)")
 	flagCacheMB     = flag.Int("cache-mb", 0, "PebbleDB block cache size in MB (0 = use default 500MB)")
 	flagMemtableMB  = flag.Int("memtable-mb", 0, "PebbleDB memtable size in MB (0 = use default 64MB)")
 	flagCompactions = flag.Int("compactions", 0, "PebbleDB max concurrent compactions (0 = use default 3)")
@@ -35,6 +44,94 @@ var (
 	flagCacheSweep  = flag.String("cache-sweep", "", "Comma-separated cache sizes in MB for GetCacheSweep (e.g. 500,1024,2048,4096,8192)")
 	flagSweepKeys   = flag.Int("sweep-keys", 100_000_000, "Number of keys for GetCacheSweep benchmark")
 )
+
+var keySizes = []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000}
+
+func requireDB(b *testing.B) {
+	b.Helper()
+	if *flagDB == "" {
+		b.Skip("use -db=pebbledb or -db=lmdb to run")
+	}
+}
+
+// ----------------------------------------
+// Unified DB environment
+
+type benchEnv struct {
+	db  dbm.DB
+	dir string
+	n   int
+}
+
+func newBenchEnv(b *testing.B, n int, valSize int) *benchEnv {
+	b.Helper()
+	dir, err := os.MkdirTemp("", "gno-bench-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	db, err := openDB("bench", dir)
+	if err != nil {
+		os.RemoveAll(dir)
+		b.Fatal(err)
+	}
+
+	// Populate with varying values to avoid compression artifacts.
+	val := make([]byte, valSize)
+	prng := rand.New(rand.NewSource(0))
+	batch := db.NewBatch()
+	for i := 0; i < n; i++ {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(i))
+		prng.Read(val)
+		batch.Set(key, val)
+		if (i+1)%10000 == 0 {
+			batch.Write()
+			batch.Close()
+			batch = db.NewBatch()
+			printProgress("populate", i+1, n)
+		}
+	}
+	batch.Write()
+	batch.Close()
+	printProgress("populate", n, n)
+
+	// Warmup: iterate full keyspace to prime caches.
+	it, err := db.Iterator(nil, nil)
+	if err != nil {
+		db.Close()
+		os.RemoveAll(dir)
+		b.Fatal(err)
+	}
+	warmCount := 0
+	for ; it.Valid(); it.Next() {
+		warmCount++
+		if warmCount%10000 == 0 {
+			printProgress("warmup", warmCount, n)
+		}
+	}
+	it.Close()
+	printProgress("warmup", n, n)
+
+	return &benchEnv{db: db, dir: dir, n: n}
+}
+
+func (env *benchEnv) Close() {
+	env.db.Close()
+	fmt.Fprintf(os.Stderr, "  db size: %s\n", dirSize(env.dir))
+	os.RemoveAll(env.dir)
+}
+
+func openDB(name, dir string) (dbm.DB, error) {
+	switch *flagDB {
+	case "pebbledb":
+		return pebbledb.NewPebbleDBWithOpts(name, dir, benchPebbleOpts())
+	case "lmdb":
+		// MapSize: 1TB default, enough for any benchmark.
+		return lmdbdb.NewLMDBWithOptions(name, dir, lmdbdb.DefaultMapSize, 0)
+	default:
+		return nil, fmt.Errorf("unknown -db=%q; use pebbledb or lmdb", *flagDB)
+	}
+}
 
 func benchPebbleOpts() *pebble.Options {
 	opts := pebbledb.DefaultPebbleOptions()
@@ -50,6 +147,9 @@ func benchPebbleOpts() *pebble.Options {
 	}
 	return opts
 }
+
+// ----------------------------------------
+// Helpers
 
 func printProgress(label string, done, total int) {
 	const width = 30
@@ -78,76 +178,16 @@ type noopLogger struct{}
 func (noopLogger) Infof(format string, args ...interface{})  {}
 func (noopLogger) Fatalf(format string, args ...interface{}) { panic(fmt.Sprintf(format, args...)) }
 
-// pebbleEnv holds a populated and warmed PebbleDB.
-// Setup once, then run Get/Set sub-benchmarks against it.
-type pebbleEnv struct {
-	db  *pebbledb.PebbleDB
-	dir string
-	n   int // number of keys populated
-}
-
-func newPebbleEnv(n int, valSize int) (*pebbleEnv, error) {
-	dir, err := os.MkdirTemp("", "gno-pebble-bench-*")
-	if err != nil {
-		return nil, err
-	}
-	db, err := pebbledb.NewPebbleDBWithOpts("bench", dir, benchPebbleOpts())
-	if err != nil {
-		os.RemoveAll(dir)
-		return nil, err
-	}
-
-	// Populate with varying values to avoid compression artifacts.
-	val := make([]byte, valSize)
-	prng := rand.New(rand.NewSource(0))
-	batch := db.NewBatch()
-	for i := 0; i < n; i++ {
-		key := make([]byte, 8)
-		binary.BigEndian.PutUint64(key, uint64(i))
-		prng.Read(val)
-		batch.Set(key, val)
-		if (i+1)%10000 == 0 {
-			batch.Write()
-			batch.Close()
-			batch = db.NewBatch()
-			printProgress("populate", i+1, n)
-		}
-	}
-	batch.Write()
-	batch.Close()
-	printProgress("populate", n, n)
-
-	// Warmup: iterate full keyspace to prime block cache and bloom filters.
-	it, err := db.Iterator(nil, nil)
-	if err != nil {
-		db.Close()
-		os.RemoveAll(dir)
-		return nil, err
-	}
-	warmCount := 0
-	for ; it.Valid(); it.Next() {
-		warmCount++
-		if warmCount%10000 == 0 {
-			printProgress("warmup", warmCount, n)
-		}
-	}
-	it.Close()
-	printProgress("warmup", n, n)
-
-	return &pebbleEnv{db: db, dir: dir, n: n}, nil
-}
-
-func (env *pebbleEnv) Close() {
-	env.db.Close()
-	fmt.Fprintf(os.Stderr, "  db size: %s\n", dirSize(env.dir))
-	os.RemoveAll(env.dir)
-}
-
 func dirSize(path string) string {
 	var total int64
 	filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() {
-			total += info.Size()
+			// Use Blocks * 512 for actual disk usage (handles sparse files).
+			if st, ok := info.Sys().(*syscall.Stat_t); ok {
+				total += st.Blocks * 512
+			} else {
+				total += info.Size()
+			}
 		}
 		return nil
 	})
@@ -161,20 +201,20 @@ func dirSize(path string) string {
 	}
 }
 
-func BenchmarkStorePebbleGet(b *testing.B) {
-	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000} {
+// ----------------------------------------
+// Benchmarks
+
+func BenchmarkStoreGet(b *testing.B) {
+	requireDB(b)
+	for _, n := range keySizes {
 		n := n
 		if *flagMaxKeys > 0 && n > *flagMaxKeys {
 			continue
 		}
-		var env *pebbleEnv
+		var env *benchEnv
 		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
 			if env == nil {
-				var err error
-				env, err = newPebbleEnv(n, 256)
-				if err != nil {
-					b.Fatal(err)
-				}
+				env = newBenchEnv(b, n, 256)
 			}
 			rng := rand.New(rand.NewSource(42))
 			var sink []byte
@@ -192,20 +232,17 @@ func BenchmarkStorePebbleGet(b *testing.B) {
 	}
 }
 
-func BenchmarkStorePebbleSetOverwrite(b *testing.B) {
-	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000} {
+func BenchmarkStoreSetOverwrite(b *testing.B) {
+	requireDB(b)
+	for _, n := range keySizes {
 		n := n
 		if *flagMaxKeys > 0 && n > *flagMaxKeys {
 			continue
 		}
-		var env *pebbleEnv
+		var env *benchEnv
 		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
 			if env == nil {
-				var err error
-				env, err = newPebbleEnv(n, 256)
-				if err != nil {
-					b.Fatal(err)
-				}
+				env = newBenchEnv(b, n, 256)
 			}
 			rng := rand.New(rand.NewSource(42))
 			val := make([]byte, 256)
@@ -223,20 +260,17 @@ func BenchmarkStorePebbleSetOverwrite(b *testing.B) {
 	}
 }
 
-func BenchmarkStorePebbleSetInsert(b *testing.B) {
-	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000} {
+func BenchmarkStoreSetInsert(b *testing.B) {
+	requireDB(b)
+	for _, n := range keySizes {
 		n := n
 		if *flagMaxKeys > 0 && n > *flagMaxKeys {
 			continue
 		}
-		var env *pebbleEnv
+		var env *benchEnv
 		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
 			if env == nil {
-				var err error
-				env, err = newPebbleEnv(n, 256)
-				if err != nil {
-					b.Fatal(err)
-				}
+				env = newBenchEnv(b, n, 256)
 			}
 			val := make([]byte, 256)
 			rand.Read(val)
@@ -253,20 +287,17 @@ func BenchmarkStorePebbleSetInsert(b *testing.B) {
 	}
 }
 
-func BenchmarkStorePebbleDeleteAndInsert(b *testing.B) {
-	for _, n := range []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000} {
+func BenchmarkStoreDeleteAndInsert(b *testing.B) {
+	requireDB(b)
+	for _, n := range keySizes {
 		n := n
 		if *flagMaxKeys > 0 && n > *flagMaxKeys {
 			continue
 		}
-		var env *pebbleEnv
+		var env *benchEnv
 		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
 			if env == nil {
-				var err error
-				env, err = newPebbleEnv(n, 256)
-				if err != nil {
-					b.Fatal(err)
-				}
+				env = newBenchEnv(b, n, 256)
 			}
 			rng := rand.New(rand.NewSource(42))
 			val := make([]byte, 256)
@@ -275,10 +306,8 @@ func BenchmarkStorePebbleDeleteAndInsert(b *testing.B) {
 			addKey := make([]byte, 8)
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				// Delete a random existing key.
 				binary.BigEndian.PutUint64(delKey, uint64(rng.Intn(n)))
 				env.db.Delete(delKey)
-				// Insert a new key to keep DB size stable.
 				binary.BigEndian.PutUint64(addKey, uint64(n+i))
 				env.db.Set(addKey, val)
 			}
@@ -289,14 +318,13 @@ func BenchmarkStorePebbleDeleteAndInsert(b *testing.B) {
 	}
 }
 
-// BenchmarkStorePebbleGetCacheSweep populates a DB once, then benchmarks Get
-// at different cache sizes by closing and reopening PebbleDB.
-//
-// Usage:
-//
-//	go test ./gnovm/cmd/benchstore/ -bench=GetCacheSweep -timeout=6h \
-//	    -sweep-keys=100000000 -cache-sweep=500,1024,2048,4096,8192
-func BenchmarkStorePebbleGetCacheSweep(b *testing.B) {
+// ----------------------------------------
+// PebbleDB cache sweep (PebbleDB only)
+
+func BenchmarkStoreGetCacheSweep(b *testing.B) {
+	if *flagDB != "pebbledb" {
+		b.Skip("cache sweep is PebbleDB-only")
+	}
 	if *flagCacheSweep == "" {
 		b.Skip("use -cache-sweep=500,1024,... to run")
 	}
@@ -311,7 +339,7 @@ func BenchmarkStorePebbleGetCacheSweep(b *testing.B) {
 
 	n := *flagSweepKeys
 
-	// Populate once using default options.
+	// Populate once.
 	dir, err := os.MkdirTemp("", "gno-cache-sweep-*")
 	if err != nil {
 		b.Fatal(err)
@@ -350,7 +378,6 @@ func BenchmarkStorePebbleGetCacheSweep(b *testing.B) {
 	for _, mb := range cacheSizes {
 		mb := mb
 
-		// Open DB and warmup outside b.Run so it happens once per cache size.
 		opts := pebbledb.DefaultPebbleOptions()
 		cache := pebble.NewCache(int64(mb) << 20)
 		opts.Cache = cache
@@ -361,9 +388,6 @@ func BenchmarkStorePebbleGetCacheSweep(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Warmup: random reads to fill the cache.
-		// Each read loads a 4KB block (~15 KVs), so read enough
-		// to fill the cache capacity.
 		warmupReads := int(int64(mb) << 20 / 4096)
 		if warmupReads > n {
 			warmupReads = n
