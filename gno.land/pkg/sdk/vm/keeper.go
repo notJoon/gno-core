@@ -335,20 +335,7 @@ func (vm *VMKeeper) newGnoTransactionStore(ctx sdk.Context) gno.TransactionStore
 	iavl := ctx.Store(vm.iavlKey)
 	gasMeter := ctx.GasMeter()
 
-	txStore := vm.gnoStore.BeginTransaction(base, iavl, gasMeter)
-
-	// Apply governance-adjustable flat costs.
-	params := vm.GetParams(ctx)
-	gc := txStore.GetGasConfig()
-	if params.GasReadFlat > 0 {
-		gc.GasReadFlat = params.GasReadFlat
-	}
-	if params.GasWriteFlat > 0 {
-		gc.GasWriteFlat = params.GasWriteFlat
-	}
-	txStore.SetGasConfig(gc)
-
-	return txStore
+	return vm.gnoStore.BeginTransaction(base, iavl, gasMeter)
 }
 
 func (vm *VMKeeper) MakeGnoTransactionStore(ctx sdk.Context) sdk.Context {
