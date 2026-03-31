@@ -225,6 +225,7 @@ LOOP:
 
 			// stop consensus state and transactions sender (initFn)
 			cs.Stop()
+			cs.Wait()
 			cancel()
 
 			// if we reached the required height, exit
