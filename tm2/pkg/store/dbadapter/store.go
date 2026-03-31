@@ -91,6 +91,11 @@ func (dsa Store) Commit() types.CommitID {
 	}
 }
 
+// GetDB returns the underlying database.
+func (dsa Store) GetDB() dbm.DB {
+	return dsa.DB
+}
+
 // Implements Committer/CommitStore.
 func (dsa Store) LastCommitID() types.CommitID {
 	// Always returns a zero commitID, as dbadapter store doesn't merkleize.

@@ -45,7 +45,7 @@ var (
 	flagSweepKeys   = flag.Int("sweep-keys", 100_000_000, "Number of keys for GetCacheSweep benchmark")
 )
 
-var keySizes = []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 500_000_000, 1_000_000_000}
+var keySizes = []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 200_000_000, 400_000_000, 500_000_000, 750_000_000, 1_000_000_000}
 
 func requireDB(b *testing.B) {
 	b.Helper()
@@ -238,6 +238,8 @@ func BenchmarkStoreGet(b *testing.B) {
 	}
 }
 
+var batchSizes = []int{10, 100, 1000}
+
 func BenchmarkStoreSetOverwrite(b *testing.B) {
 	requireDB(b)
 	for _, n := range keySizes {
@@ -245,23 +247,32 @@ func BenchmarkStoreSetOverwrite(b *testing.B) {
 		if *flagMaxKeys > 0 && n > *flagMaxKeys {
 			continue
 		}
-		var env *benchEnv
-		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
-			if env == nil {
-				env = newBenchEnv(b, n, 256)
+		for _, bs := range batchSizes {
+			bs := bs
+			var env *benchEnv
+			b.Run(fmt.Sprintf("keys=%d/batch=%d", n, bs), func(b *testing.B) {
+				if env == nil {
+					env = newBenchEnv(b, n, 256)
+				}
+				rng := rand.New(rand.NewSource(42))
+				val := make([]byte, 256)
+				rng.Read(val)
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					batch := env.db.NewBatch()
+					for j := 0; j < bs; j++ {
+						key := make([]byte, 8)
+						binary.BigEndian.PutUint64(key, uint64(rng.Intn(n)))
+						batch.Set(key, val)
+					}
+					batch.Write()
+					batch.Close()
+				}
+			})
+			if env != nil {
+				env.Close()
+				env = nil
 			}
-			rng := rand.New(rand.NewSource(42))
-			val := make([]byte, 256)
-			rng.Read(val)
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				key := make([]byte, 8)
-				binary.BigEndian.PutUint64(key, uint64(rng.Intn(n)))
-				env.db.Set(key, val)
-			}
-		})
-		if env != nil {
-			env.Close()
 		}
 	}
 }
@@ -273,22 +284,31 @@ func BenchmarkStoreSetInsert(b *testing.B) {
 		if *flagMaxKeys > 0 && n > *flagMaxKeys {
 			continue
 		}
-		var env *benchEnv
-		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
-			if env == nil {
-				env = newBenchEnv(b, n, 256)
+		for _, bs := range batchSizes {
+			bs := bs
+			var env *benchEnv
+			b.Run(fmt.Sprintf("keys=%d/batch=%d", n, bs), func(b *testing.B) {
+				if env == nil {
+					env = newBenchEnv(b, n, 256)
+				}
+				val := make([]byte, 256)
+				rand.Read(val)
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					batch := env.db.NewBatch()
+					for j := 0; j < bs; j++ {
+						key := make([]byte, 8)
+						binary.BigEndian.PutUint64(key, uint64(n+i*bs+j))
+						batch.Set(key, val)
+					}
+					batch.Write()
+					batch.Close()
+				}
+			})
+			if env != nil {
+				env.Close()
+				env = nil
 			}
-			val := make([]byte, 256)
-			rand.Read(val)
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				key := make([]byte, 8)
-				binary.BigEndian.PutUint64(key, uint64(n+i))
-				env.db.Set(key, val)
-			}
-		})
-		if env != nil {
-			env.Close()
 		}
 	}
 }
@@ -300,26 +320,35 @@ func BenchmarkStoreDeleteAndInsert(b *testing.B) {
 		if *flagMaxKeys > 0 && n > *flagMaxKeys {
 			continue
 		}
-		var env *benchEnv
-		b.Run(fmt.Sprintf("keys=%d", n), func(b *testing.B) {
-			if env == nil {
-				env = newBenchEnv(b, n, 256)
+		for _, bs := range batchSizes {
+			bs := bs
+			var env *benchEnv
+			b.Run(fmt.Sprintf("keys=%d/batch=%d", n, bs), func(b *testing.B) {
+				if env == nil {
+					env = newBenchEnv(b, n, 256)
+				}
+				rng := rand.New(rand.NewSource(42))
+				val := make([]byte, 256)
+				rng.Read(val)
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					batch := env.db.NewBatch()
+					for j := 0; j < bs; j++ {
+						delKey := make([]byte, 8)
+						binary.BigEndian.PutUint64(delKey, uint64(rng.Intn(n)))
+						batch.Delete(delKey)
+						addKey := make([]byte, 8)
+						binary.BigEndian.PutUint64(addKey, uint64(n+i*bs+j))
+						batch.Set(addKey, val)
+					}
+					batch.Write()
+					batch.Close()
+				}
+			})
+			if env != nil {
+				env.Close()
+				env = nil
 			}
-			rng := rand.New(rand.NewSource(42))
-			val := make([]byte, 256)
-			rng.Read(val)
-			delKey := make([]byte, 8)
-			addKey := make([]byte, 8)
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				binary.BigEndian.PutUint64(delKey, uint64(rng.Intn(n)))
-				env.db.Delete(delKey)
-				binary.BigEndian.PutUint64(addKey, uint64(n+i))
-				env.db.Set(addKey, val)
-			}
-		})
-		if env != nil {
-			env.Close()
 		}
 	}
 }

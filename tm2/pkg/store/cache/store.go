@@ -109,16 +109,41 @@ func (store *cacheStore) Write() {
 
 	sort.Strings(keys)
 
-	// TODO: Consider allowing usage of Batch, which would allow the write to
-	// at least happen atomically.
-	for _, key := range keys {
-		cacheValue := store.cache[key]
-		if cacheValue.deleted {
-			store.parent.Delete([]byte(key))
-		} else if cacheValue.value == nil {
-			// Skip, it already doesn't exist in parent.
-		} else {
-			store.parent.Set([]byte(key), cacheValue.value)
+	// Use Batch if the parent's backing DB supports it, for atomicity
+	// and to amortize fsync cost (critical for LMDB).
+	if batcher, ok := store.parent.(interface{ GetDB() dbm.DB }); ok {
+		db := batcher.GetDB()
+		batch := db.NewBatch()
+		for _, key := range keys {
+			cacheValue := store.cache[key]
+			if cacheValue.deleted {
+				if err := batch.Delete([]byte(key)); err != nil {
+					panic(err)
+				}
+			} else if cacheValue.value == nil {
+				// Skip, it already doesn't exist in parent.
+			} else {
+				if err := batch.Set([]byte(key), cacheValue.value); err != nil {
+					panic(err)
+				}
+			}
+		}
+		if err := batch.Write(); err != nil {
+			panic(err)
+		}
+		if err := batch.Close(); err != nil {
+			panic(err)
+		}
+	} else {
+		for _, key := range keys {
+			cacheValue := store.cache[key]
+			if cacheValue.deleted {
+				store.parent.Delete([]byte(key))
+			} else if cacheValue.value == nil {
+				// Skip, it already doesn't exist in parent.
+			} else {
+				store.parent.Set([]byte(key), cacheValue.value)
+			}
 		}
 	}
 
