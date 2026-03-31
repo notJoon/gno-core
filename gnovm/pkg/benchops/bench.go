@@ -149,3 +149,25 @@ func OpAccumDur(code byte) time.Duration {
 func OpCount(code byte) int64 {
 	return measure.opCounts[code]
 }
+
+// StoreCount returns the invocation count for a store operation code.
+func StoreCount(storeCode byte) int64 {
+	return measure.storeCounts[storeCode]
+}
+
+// StoreAccumDur returns the accumulated duration for a store operation code.
+func StoreAccumDur(storeCode byte) time.Duration {
+	return measure.storeAccumDur[storeCode]
+}
+
+// StoreAccumSize returns the accumulated byte size for a store operation code.
+func StoreAccumSize(storeCode byte) int64 {
+	return measure.storeAccumSize[storeCode]
+}
+
+// ResetStore resets store measurements between runs.
+func ResetStore() {
+	measure.storeCounts = [256]int64{}
+	measure.storeAccumDur = [256]time.Duration{}
+	measure.storeAccumSize = [256]int64{}
+}
