@@ -45,7 +45,7 @@ var (
 	flagSweepKeys   = flag.Int("sweep-keys", 100_000_000, "Number of keys for GetCacheSweep benchmark")
 )
 
-var keySizes = []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 200_000_000, 400_000_000, 500_000_000, 750_000_000, 1_000_000_000}
+var keySizes = []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000}
 
 func requireDB(b *testing.B) {
 	b.Helper()
@@ -247,9 +247,9 @@ func BenchmarkStoreSetOverwrite(b *testing.B) {
 		if *flagMaxKeys > 0 && n > *flagMaxKeys {
 			continue
 		}
+		var env *benchEnv
 		for _, bs := range batchSizes {
 			bs := bs
-			var env *benchEnv
 			b.Run(fmt.Sprintf("keys=%d/batch=%d", n, bs), func(b *testing.B) {
 				if env == nil {
 					env = newBenchEnv(b, n, 256)
@@ -268,11 +268,11 @@ func BenchmarkStoreSetOverwrite(b *testing.B) {
 					batch.Write()
 					batch.Close()
 				}
+				b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(int64(b.N)*int64(bs)), "ns/key")
 			})
-			if env != nil {
-				env.Close()
-				env = nil
-			}
+		}
+		if env != nil {
+			env.Close()
 		}
 	}
 }
@@ -284,9 +284,9 @@ func BenchmarkStoreSetInsert(b *testing.B) {
 		if *flagMaxKeys > 0 && n > *flagMaxKeys {
 			continue
 		}
+		var env *benchEnv
 		for _, bs := range batchSizes {
 			bs := bs
-			var env *benchEnv
 			b.Run(fmt.Sprintf("keys=%d/batch=%d", n, bs), func(b *testing.B) {
 				if env == nil {
 					env = newBenchEnv(b, n, 256)
@@ -304,11 +304,11 @@ func BenchmarkStoreSetInsert(b *testing.B) {
 					batch.Write()
 					batch.Close()
 				}
+				b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(int64(b.N)*int64(bs)), "ns/key")
 			})
-			if env != nil {
-				env.Close()
-				env = nil
-			}
+		}
+		if env != nil {
+			env.Close()
 		}
 	}
 }
@@ -320,9 +320,9 @@ func BenchmarkStoreDeleteAndInsert(b *testing.B) {
 		if *flagMaxKeys > 0 && n > *flagMaxKeys {
 			continue
 		}
+		var env *benchEnv
 		for _, bs := range batchSizes {
 			bs := bs
-			var env *benchEnv
 			b.Run(fmt.Sprintf("keys=%d/batch=%d", n, bs), func(b *testing.B) {
 				if env == nil {
 					env = newBenchEnv(b, n, 256)
@@ -334,21 +334,20 @@ func BenchmarkStoreDeleteAndInsert(b *testing.B) {
 				for i := 0; i < b.N; i++ {
 					batch := env.db.NewBatch()
 					for j := 0; j < bs; j++ {
-						delKey := make([]byte, 8)
-						binary.BigEndian.PutUint64(delKey, uint64(rng.Intn(n)))
-						batch.Delete(delKey)
-						addKey := make([]byte, 8)
-						binary.BigEndian.PutUint64(addKey, uint64(n+i*bs+j))
-						batch.Set(addKey, val)
+						// Delete existing key, re-insert at same key to keep DB stable.
+						key := make([]byte, 8)
+						binary.BigEndian.PutUint64(key, uint64(rng.Intn(n)))
+						batch.Delete(key)
+						batch.Set(key, val)
 					}
 					batch.Write()
 					batch.Close()
 				}
+				b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(int64(b.N)*int64(bs)), "ns/key")
 			})
-			if env != nil {
-				env.Close()
-				env = nil
-			}
+		}
+		if env != nil {
+			env.Close()
 		}
 	}
 }

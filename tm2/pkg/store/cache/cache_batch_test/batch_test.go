@@ -11,6 +11,7 @@ import (
 	_ "github.com/gnolang/gno/tm2/pkg/db/pebbledb"
 	"github.com/gnolang/gno/tm2/pkg/store/cache"
 	"github.com/gnolang/gno/tm2/pkg/store/dbadapter"
+	store "github.com/gnolang/gno/tm2/pkg/store/types"
 )
 
 func TestCacheBatchWritePebbleDB(t *testing.T) {
@@ -165,4 +166,110 @@ func TestCacheBatchUsesDBBatch(t *testing.T) {
 
 	got := parent.Get([]byte("k"))
 	require.Equal(t, []byte("v"), got)
+}
+
+// nonBatchStore wraps a DB but does NOT implement GetDB(),
+// forcing the cache to use the non-batch fallback path.
+type nonBatchStore struct {
+	db dbm.DB
+}
+
+func (s nonBatchStore) Get(key []byte) []byte {
+	v, _ := s.db.Get(key)
+	return v
+}
+func (s nonBatchStore) Has(key []byte) bool {
+	v, _ := s.db.Has(key)
+	return v
+}
+func (s nonBatchStore) Set(key, value []byte) { s.db.Set(key, value) }
+func (s nonBatchStore) Delete(key []byte)     { s.db.Delete(key) }
+func (s nonBatchStore) Iterator(start, end []byte) store.Iterator {
+	it, _ := s.db.Iterator(start, end)
+	return it
+}
+func (s nonBatchStore) ReverseIterator(start, end []byte) store.Iterator {
+	it, _ := s.db.ReverseIterator(start, end)
+	return it
+}
+func (s nonBatchStore) CacheWrap() store.Store   { return cache.New(s) }
+func (s nonBatchStore) Write()                   { panic("unexpected") }
+func (s nonBatchStore) Flush()                   {}
+func (s nonBatchStore) SetStoreOptions(_ store.StoreOptions) {}
+func (s nonBatchStore) GetStoreOptions() store.StoreOptions  { return store.StoreOptions{} }
+
+func TestCacheFallbackWritePebbleDB(t *testing.T) {
+	t.Parallel()
+	db, err := dbm.NewDB("test_fb_pebble", dbm.PebbleDBBackend, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+
+	parent := nonBatchStore{db: db}
+	cs := cache.New(parent)
+	cs.Set([]byte("k1"), []byte("v1"))
+	cs.Set([]byte("k2"), []byte("v2"))
+	cs.Delete([]byte("k2"))
+	cs.Write()
+
+	v, err := db.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v1"), v)
+
+	v, err = db.Get([]byte("k2"))
+	require.NoError(t, err)
+	require.Nil(t, v)
+}
+
+func TestCacheFallbackWriteLMDB(t *testing.T) {
+	t.Parallel()
+	db, err := lmdbdb.NewLMDB("test_fb_lmdb", t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+
+	parent := nonBatchStore{db: db}
+	cs := cache.New(parent)
+	cs.Set([]byte("k1"), []byte("v1"))
+	cs.Write()
+
+	v, err := db.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v1"), v)
+}
+
+func TestCacheClearedAfterWritePebbleDB(t *testing.T) {
+	t.Parallel()
+	db, err := dbm.NewDB("test_clear_pebble", dbm.PebbleDBBackend, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+
+	parent := dbadapter.Store{DB: db}
+	cs := cache.New(parent)
+	cs.Set([]byte("k"), []byte("v1"))
+	cs.Write()
+
+	// After Write, cache is cleared. A second Write is a no-op.
+	cs.Write()
+
+	// Update the parent directly — cache should not mask it.
+	require.NoError(t, db.Set([]byte("k"), []byte("v2")))
+	got := cs.Get([]byte("k"))
+	require.Equal(t, []byte("v2"), got)
+}
+
+func TestCacheClearedAfterWriteLMDB(t *testing.T) {
+	t.Parallel()
+	db, err := lmdbdb.NewLMDB("test_clear_lmdb", t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+
+	parent := dbadapter.Store{DB: db}
+	cs := cache.New(parent)
+	cs.Set([]byte("k"), []byte("v1"))
+	cs.Write()
+
+	cs.Write() // second Write is no-op
+
+	require.NoError(t, db.Set([]byte("k"), []byte("v2")))
+	got := cs.Get([]byte("k"))
+	require.Equal(t, []byte("v2"), got)
 }

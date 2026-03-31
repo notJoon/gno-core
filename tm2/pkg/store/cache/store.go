@@ -16,6 +16,12 @@ import (
 	"github.com/gnolang/gno/tm2/pkg/store/utils"
 )
 
+// dbadapterStore is implemented by dbadapter.Store. Used by Write()
+// to batch writes to the backing DB for atomicity and performance.
+type dbadapterStore interface {
+	GetDB() dbm.DB
+}
+
 // If value is nil but deleted is false, it means the parent doesn't have the
 // key.  (No need to delete upon Write())
 type cValue struct {
@@ -109,11 +115,12 @@ func (store *cacheStore) Write() {
 
 	sort.Strings(keys)
 
-	// Use Batch if the parent's backing DB supports it, for atomicity
-	// and to amortize fsync cost (critical for LMDB).
-	if batcher, ok := store.parent.(interface{ GetDB() dbm.DB }); ok {
-		db := batcher.GetDB()
+	// Use Batch if the parent is a dbadapter with a backing DB,
+	// for atomicity and to amortize fsync cost (critical for LMDB).
+	if dba, ok := store.parent.(dbadapterStore); ok {
+		db := dba.GetDB()
 		batch := db.NewBatch()
+		defer batch.Close()
 		for _, key := range keys {
 			cacheValue := store.cache[key]
 			if cacheValue.deleted {
@@ -129,9 +136,6 @@ func (store *cacheStore) Write() {
 			}
 		}
 		if err := batch.Write(); err != nil {
-			panic(err)
-		}
-		if err := batch.Close(); err != nil {
 			panic(err)
 		}
 	} else {
