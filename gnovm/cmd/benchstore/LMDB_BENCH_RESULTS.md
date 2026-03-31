@@ -112,3 +112,51 @@ sizes (all in block cache) due to avoiding CGo overhead.
 PebbleDB writes are ~3-4µs regardless of DB size (memtable append, no fsync),
 but compaction creates deferred I/O load and can stall writes when L0 backs up.
 LMDB writes are slower but deterministic — no background processes, no stalls.
+
+## Value Size Sweep (data exceeds RAM)
+
+Measures how value size affects I/O cost when the DB exceeds available page cache.
+Key count is adaptive to keep DB size ~10-130 GB.
+
+### Reads
+
+| Value size | Keys | DB size | ns/op | ns/byte |
+|------------|------|---------|-------|---------|
+| 100B | 100M | 11.6 GB | 2,220 | 22.2 |
+| 1KB | 100M | 127.7 GB | 157,970 | 158.0 |
+| 10KB | 10M | 114.7 GB | 328,847 | 32.9 |
+| 100KB | 1M | 95.4 GB | 1,704,409 | 17.0 |
+
+### Writes (batch=1000, per-key)
+
+| Value size | Keys | DB size | ns/key | ns/byte |
+|------------|------|---------|--------|---------|
+| 100B | 100M | 11.6 GB | 32,686 | 326.9 |
+| 1KB | 100M | 127.7 GB | 163,449 | 163.4 |
+| 10KB | 10M | 114.7 GB | 173,627 | 17.4 |
+| 100KB | 1M | 95.4 GB | 1,349,231 | 13.5 |
+
+### Interpretation
+
+The ns/byte numbers mix flat I/O overhead with per-byte cost:
+- At small values (100B), flat cost dominates — the 22.2 ns/byte for reads is
+  really ~2,000 ns flat + negligible per-byte cost.
+- At large values (100KB), per-byte cost dominates — 17 ns/byte for reads and
+  13.5 ns/byte for writes is the real per-byte I/O cost (reading/writing
+  overflow pages from/to disk).
+
+The 100B/100M case (11.6 GB) still fits mostly in page cache, explaining the
+low 2.2µs read latency. The 1KB/100M case (127.7 GB) exceeds RAM and shows
+the full disk-bound cost at 158µs — similar to the 256B/500M case.
+
+100KB values are expensive because each read/write touches ~25 LMDB overflow
+pages (4KB each). Even with only 1M keys, the 95 GB DB is disk-bound, and
+each read requires sequential I/O across 25 pages.
+
+### Gas model implications
+
+The existing per-byte gas constant (16/byte for objects) aligns well with the
+actual per-byte I/O cost of ~13-17 ns/byte visible at large value sizes. At
+small values, the flat gas costs (GasReadFlat=67,000, GasWriteFlat=100,000)
+correctly capture the fixed I/O overhead. The two-component model
+(flat + per-byte) matches the observed cost structure.
