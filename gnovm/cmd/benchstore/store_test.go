@@ -45,7 +45,7 @@ var (
 	flagSweepKeys   = flag.Int("sweep-keys", 100_000_000, "Number of keys for GetCacheSweep benchmark")
 )
 
-var keySizes = []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000}
+var keySizes = []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 500_000_000, 1_000_000_000}
 
 func requireDB(b *testing.B) {
 	b.Helper()
@@ -95,22 +95,28 @@ func newBenchEnv(b *testing.B, n int, valSize int) *benchEnv {
 	batch.Close()
 	printProgress("populate", n, n)
 
-	// Warmup: iterate full keyspace to prime caches.
-	it, err := db.Iterator(nil, nil)
-	if err != nil {
-		db.Close()
-		os.RemoveAll(dir)
-		b.Fatal(err)
-	}
-	warmCount := 0
-	for ; it.Valid(); it.Next() {
-		warmCount++
-		if warmCount%10000 == 0 {
-			printProgress("warmup", warmCount, n)
+	// Warmup: PebbleDB gets proportional random reads to fill block cache.
+	// LMDB uses OS page cache via mmap — no explicit warmup needed.
+	if *flagDB == "pebbledb" {
+		cacheMB := 500 // default
+		if *flagCacheMB > 0 {
+			cacheMB = *flagCacheMB
 		}
+		warmupReads := int(int64(cacheMB) << 20 / 4096)
+		if warmupReads > n {
+			warmupReads = n
+		}
+		rng := rand.New(rand.NewSource(99))
+		for i := 0; i < warmupReads; i++ {
+			key := make([]byte, 8)
+			binary.BigEndian.PutUint64(key, uint64(rng.Intn(n)))
+			db.Get(key)
+			if (i+1)%10000 == 0 {
+				printProgress("warmup", i+1, warmupReads)
+			}
+		}
+		printProgress("warmup", warmupReads, warmupReads)
 	}
-	it.Close()
-	printProgress("warmup", n, n)
 
 	return &benchEnv{db: db, dir: dir, n: n}
 }
