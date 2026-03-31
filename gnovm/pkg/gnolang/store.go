@@ -82,6 +82,8 @@ type Store interface {
 	GetNative(pkgPath string, name Name) func(m *Machine) // for native functions
 	SetLogStoreOps(dst io.Writer)
 	LogFinalizeRealm(rlmpath string) // to mark finalization of realm boundaries
+	SetGasConfig(GasConfig)
+	GetGasConfig() GasConfig
 	Print()
 }
 
@@ -109,31 +111,40 @@ const (
 	GasDeleteObjectDesc    = "DeleteObjectFlat"
 )
 
-// GasConfig defines gas cost for each operation on KVStores
+// GasConfig defines gas cost for each operation on KVStores.
+// Flat costs cover the fixed I/O overhead per operation (DB lookup,
+// page fault, fsync amortization). Per-byte costs cover serialization.
+// Both are governance-adjustable via vm params.
 type GasConfig struct {
-	GasGetObject       int64
-	GasSetObject       int64
-	GasGetType         int64
-	GasSetType         int64
-	GasGetPackageRealm int64
-	GasSetPackageRealm int64
-	GasAddMemPackage   int64
-	GasGetMemPackage   int64
-	GasDeleteObject    int64
+	GasReadFlat  int64 // flat cost per read operation
+	GasWriteFlat int64 // flat cost per write operation
+
+	GasGetObject       int64 // per byte cost
+	GasSetObject       int64 // per byte cost
+	GasGetType         int64 // per byte cost
+	GasSetType         int64 // per byte cost
+	GasGetPackageRealm int64 // per byte cost
+	GasSetPackageRealm int64 // per byte cost
+	GasAddMemPackage   int64 // per byte cost
+	GasGetMemPackage   int64 // per byte cost
+	GasDeleteObject    int64 // flat cost
 }
 
 // DefaultGasConfig returns a default gas config for KVStores.
+// Flat costs are calibrated for LMDB at ~100M keys (1 gas = 1 ns).
 func DefaultGasConfig() GasConfig {
 	return GasConfig{
-		GasGetObject:       16,   // per byte cost
-		GasSetObject:       16,   // per byte cost
-		GasGetType:         5,    // per byte cost
-		GasSetType:         52,   // per byte cost
-		GasGetPackageRealm: 524,  // per byte cost
-		GasSetPackageRealm: 524,  // per byte cost
-		GasAddMemPackage:   8,    // per byte cost
-		GasGetMemPackage:   8,    // per byte cost
-		GasDeleteObject:    3715, // flat cost
+		GasReadFlat:        67_000, // ~67µs per read (LMDB B+ tree lookup at 100M keys)
+		GasWriteFlat:       100_000, // ~100µs per write (read + copy-on-write + amortized fsync)
+		GasGetObject:       16,     // per byte cost
+		GasSetObject:       16,     // per byte cost
+		GasGetType:         5,      // per byte cost
+		GasSetType:         52,     // per byte cost
+		GasGetPackageRealm: 524,    // per byte cost
+		GasSetPackageRealm: 524,    // per byte cost
+		GasAddMemPackage:   8,      // per byte cost
+		GasGetMemPackage:   8,      // per byte cost
+		GasDeleteObject:    3715,   // flat cost
 	}
 }
 
@@ -381,7 +392,7 @@ func (ds *defaultStore) GetPackageRealm(pkgPath string) (rlm *Realm) {
 	if bz == nil {
 		return nil
 	}
-	gas := overflow.Mulp(ds.gasConfig.GasGetPackageRealm, store.Gas(len(bz)))
+	gas := ds.gasConfig.GasReadFlat + overflow.Mulp(ds.gasConfig.GasGetPackageRealm, store.Gas(len(bz)))
 	ds.consumeGas(gas, GasGetPackageRealmDesc)
 	amino.MustUnmarshal(bz, &rlm)
 	size = len(bz)
@@ -404,7 +415,7 @@ func (ds *defaultStore) SetPackageRealm(rlm *Realm) {
 	oid := ObjectIDFromPkgPath(rlm.Path)
 	key := backendRealmKey(oid)
 	bz := amino.MustMarshal(rlm)
-	gas := overflow.Mulp(ds.gasConfig.GasSetPackageRealm, store.Gas(len(bz)))
+	gas := ds.gasConfig.GasWriteFlat + overflow.Mulp(ds.gasConfig.GasSetPackageRealm, store.Gas(len(bz)))
 	ds.consumeGas(gas, GasSetPackageRealmDesc)
 	ds.baseStore.Set([]byte(key), bz)
 	size = len(bz)
@@ -452,7 +463,7 @@ func (ds *defaultStore) loadObjectSafe(oid ObjectID) Object {
 		hash := hashbz[:HashSize]
 		bz := hashbz[HashSize:]
 		var oo Object
-		gas := overflow.Mulp(ds.gasConfig.GasGetObject, store.Gas(len(bz)))
+		gas := ds.gasConfig.GasReadFlat + overflow.Mulp(ds.gasConfig.GasGetObject, store.Gas(len(bz)))
 		ds.consumeGas(gas, GasGetObjectDesc)
 		amino.MustUnmarshal(bz, &oo)
 		if debug {
@@ -602,7 +613,7 @@ func (ds *defaultStore) SetObject(oo Object) int64 {
 	o2 := copyValueWithRefs(oo)
 	// marshal to binary.
 	bz := amino.MustMarshalAny(o2)
-	gas := overflow.Mulp(ds.gasConfig.GasSetObject, store.Gas(len(bz)))
+	gas := ds.gasConfig.GasWriteFlat + overflow.Mulp(ds.gasConfig.GasSetObject, store.Gas(len(bz)))
 	ds.consumeGas(gas, GasSetObjectDesc)
 	// set hash.
 	hash := HashBytes(bz) // XXX objectHash(bz)???
@@ -700,7 +711,7 @@ func (ds *defaultStore) DelObject(oo Object) int64 {
 		old := bm.StartStore(bm.StoreDeleteObject)
 		defer func() { bm.StopStore(bm.StoreDeleteObject, old, 0) }()
 	}
-	ds.consumeGas(ds.gasConfig.GasDeleteObject, GasDeleteObjectDesc)
+	ds.consumeGas(ds.gasConfig.GasWriteFlat+ds.gasConfig.GasDeleteObject, GasDeleteObjectDesc)
 	oid := oo.GetObjectID()
 	size := oo.GetObjectInfo().LastObjectSize
 	// delete from cache.
@@ -744,7 +755,7 @@ func (ds *defaultStore) GetTypeSafe(tid TypeID) Type {
 		key := backendTypeKey(tid)
 		bz := ds.baseStore.Get([]byte(key))
 		if bz != nil {
-			gas := overflow.Mulp(ds.gasConfig.GasGetType, store.Gas(len(bz)))
+			gas := ds.gasConfig.GasReadFlat + overflow.Mulp(ds.gasConfig.GasGetType, store.Gas(len(bz)))
 			ds.consumeGas(gas, GasGetTypeDesc)
 			cacheSum := sha256.Sum256(bz)
 			var tt Type
@@ -805,7 +816,7 @@ func (ds *defaultStore) SetType(tt Type) {
 		bz := amino.MustMarshalAny(tcopy)
 		cacheSum := sha256.Sum256(bz)
 		ds.aminoCache.Set(cacheSum[:], tcopy, int64(len(bz)))
-		gas := overflow.Mulp(ds.gasConfig.GasSetType, store.Gas(len(bz)))
+		gas := ds.gasConfig.GasWriteFlat + overflow.Mulp(ds.gasConfig.GasSetType, store.Gas(len(bz)))
 		ds.consumeGas(gas, GasSetTypeDesc)
 		ds.baseStore.Set([]byte(key), bz)
 		size = len(bz)
@@ -934,7 +945,7 @@ func (ds *defaultStore) AddMemPackage(mpkg *std.MemPackage, mptype MemPackageTyp
 	ctr := ds.incGetPackageIndexCounter()
 	idxkey := []byte(backendPackageIndexKey(ctr))
 	bz := amino.MustMarshal(mpkg)
-	gas := overflow.Mulp(ds.gasConfig.GasAddMemPackage, store.Gas(len(bz)))
+	gas := ds.gasConfig.GasWriteFlat + overflow.Mulp(ds.gasConfig.GasAddMemPackage, store.Gas(len(bz)))
 	ds.consumeGas(gas, GasAddMemPackageDesc)
 	ds.baseStore.Set(idxkey, []byte(mpkg.Path))
 	pathkey := []byte(backendPackagePathKey(mpkg.Path))
@@ -969,7 +980,7 @@ func (ds *defaultStore) getMemPackage(path string, isRetry bool) *std.MemPackage
 		}
 		return nil
 	}
-	gas := overflow.Mulp(ds.gasConfig.GasGetMemPackage, store.Gas(len(bz)))
+	gas := ds.gasConfig.GasReadFlat + overflow.Mulp(ds.gasConfig.GasGetMemPackage, store.Gas(len(bz)))
 	ds.consumeGas(gas, GasGetMemPackageDesc)
 
 	var mpkg *std.MemPackage
@@ -1076,6 +1087,14 @@ func (ds *defaultStore) GarbageCollectObjectCache(gcCycle int64) {
 			delete(ds.cacheObjects, objId)
 		}
 	}
+}
+
+func (ds *defaultStore) SetGasConfig(gc GasConfig) {
+	ds.gasConfig = gc
+}
+
+func (ds *defaultStore) GetGasConfig() GasConfig {
+	return ds.gasConfig
 }
 
 func (ds *defaultStore) SetNativeResolver(ns NativeResolver) {

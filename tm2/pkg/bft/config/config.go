@@ -311,7 +311,7 @@ type BaseConfig struct {
 	//   - EXPERIMENTAL
 	//   - may be faster is some use-cases (random reads - indexer)
 	//   - use boltdb build tag (go build -tags boltdb)
-	DBBackend string `toml:"db_backend" comment:"Database backend: pebbledb | goleveldb | boltdb\n* pebbledb (github.com/cockroachdb/pebble)\n  - pure go\n  - stable\n* goleveldb (github.com/syndtr/goleveldb)\n  - pure go\n  - stable\n  - use goleveldb build tag\n* boltdb (uses etcd's fork of bolt - go.etcd.io/bbolt)\n  - EXPERIMENTAL\n  - may be faster is some use-cases (random reads - indexer)\n  - use boltdb build tag (go build -tags boltdb)"`
+	DBBackend string `toml:"db_backend" comment:"Database backend: lmdbdb | pebbledb | goleveldb | boltdb\n* lmdbdb (github.com/bmatsuo/lmdb-go)\n  - B+ tree with mmap, fastest reads at scale\n  - requires CGo\n  - default\n* pebbledb (github.com/cockroachdb/pebble)\n  - LSM tree, pure go\n  - stable\n* goleveldb (github.com/syndtr/goleveldb)\n  - pure go\n  - stable\n  - use goleveldb build tag\n* boltdb (uses etcd's fork of bolt - go.etcd.io/bbolt)\n  - EXPERIMENTAL\n  - use boltdb build tag (go build -tags boltdb)"`
 
 	// Database directory
 	DBPath string `toml:"db_dir" comment:"Database directory"`
@@ -335,7 +335,7 @@ func DefaultBaseConfig() BaseConfig {
 		ABCI:              SocketABCI,
 		ProfListenAddress: "",
 		FastSyncMode:      true,
-		DBBackend:         db.PebbleDBBackend.String(),
+		DBBackend:         "lmdbdb",
 		DBPath:            DefaultDBDir,
 	}
 }

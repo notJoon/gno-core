@@ -20,6 +20,8 @@ const (
 	depositDefault                 = "600000000ugnot"
 	storagePriceDefault            = "100ugnot" // cost per byte (1 gnot per 10KB) 1B GNOT == 10TB
 	storageFeeCollectorNameDefault = "storage_fee_collector"
+	gasReadFlatDefault             = int64(67_000)  // flat gas per storage read (~67µs at 100M keys)
+	gasWriteFlatDefault            = int64(100_000) // flat gas per storage write (~100µs at 100M keys)
 )
 
 var ASCIIDomain = regexp.MustCompile(`^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$`)
@@ -32,10 +34,12 @@ type Params struct {
 	DefaultDeposit      string         `json:"default_deposit" yaml:"default_deposit"`
 	StoragePrice        string         `json:"storage_price" yaml:"storage_price"`
 	StorageFeeCollector crypto.Address `json:"storage_fee_collector" yaml:"storage_fee_collector"`
+	GasReadFlat         int64          `json:"gas_read_flat" yaml:"gas_read_flat"`
+	GasWriteFlat        int64          `json:"gas_write_flat" yaml:"gas_write_flat"`
 }
 
 // NewParams creates a new Params object
-func NewParams(namesPkgPath, claPkgPath, chainDomain, defaultDeposit, storagePrice string, storageFeeCollector crypto.Address) Params {
+func NewParams(namesPkgPath, claPkgPath, chainDomain, defaultDeposit, storagePrice string, storageFeeCollector crypto.Address, gasReadFlat, gasWriteFlat int64) Params {
 	return Params{
 		SysNamesPkgPath:     namesPkgPath,
 		SysCLAPkgPath:       claPkgPath,
@@ -43,13 +47,16 @@ func NewParams(namesPkgPath, claPkgPath, chainDomain, defaultDeposit, storagePri
 		DefaultDeposit:      defaultDeposit,
 		StoragePrice:        storagePrice,
 		StorageFeeCollector: storageFeeCollector,
+		GasReadFlat:         gasReadFlat,
+		GasWriteFlat:        gasWriteFlat,
 	}
 }
 
 // DefaultParams returns a default set of parameters.
 func DefaultParams() Params {
 	return NewParams(sysNamesPkgDefault, sysCLAPkgDefault, chainDomainDefault,
-		depositDefault, storagePriceDefault, crypto.AddressFromPreimage([]byte(storageFeeCollectorNameDefault)))
+		depositDefault, storagePriceDefault, crypto.AddressFromPreimage([]byte(storageFeeCollectorNameDefault)),
+		gasReadFlatDefault, gasWriteFlatDefault)
 }
 
 // String implements the stringer interface.
@@ -62,6 +69,8 @@ func (p Params) String() string {
 	sb.WriteString(fmt.Sprintf("DefaultDeposit: %q\n", p.DefaultDeposit))
 	sb.WriteString(fmt.Sprintf("StoragePrice: %q\n", p.StoragePrice))
 	sb.WriteString(fmt.Sprintf("StorageFeeCollector: %q\n", p.StorageFeeCollector.String()))
+	sb.WriteString(fmt.Sprintf("GasReadFlat: %d\n", p.GasReadFlat))
+	sb.WriteString(fmt.Sprintf("GasWriteFlat: %d\n", p.GasWriteFlat))
 	return sb.String()
 }
 
@@ -85,6 +94,12 @@ func (p Params) Validate() error {
 	}
 	if p.StorageFeeCollector.IsZero() {
 		return fmt.Errorf("invalid storage fee collector, cannot be empty")
+	}
+	if p.GasReadFlat < 0 {
+		return fmt.Errorf("invalid gas_read_flat %d, must be non-negative", p.GasReadFlat)
+	}
+	if p.GasWriteFlat < 0 {
+		return fmt.Errorf("invalid gas_write_flat %d, must be non-negative", p.GasWriteFlat)
 	}
 	return nil
 }
@@ -145,6 +160,10 @@ func (vm *VMKeeper) WillSetParam(ctx sdk.Context, key string, value any) {
 		params.DefaultDeposit = sdkparams.MustParamString("default_deposit", value)
 	case "p:storage_price":
 		params.StoragePrice = sdkparams.MustParamString("storage_price", value)
+	case "p:gas_read_flat":
+		params.GasReadFlat = sdkparams.MustParamInt64("gas_read_flat", value)
+	case "p:gas_write_flat":
+		params.GasWriteFlat = sdkparams.MustParamInt64("gas_write_flat", value)
 	case "p:storage_fee_collector":
 		s := sdkparams.MustParamString("storage_fee_collector", value)
 		addr, err := crypto.AddressFromString(s)
