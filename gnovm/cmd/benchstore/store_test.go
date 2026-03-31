@@ -452,3 +452,141 @@ func BenchmarkStoreGetCacheSweep(b *testing.B) {
 		cache.Unref()
 	}
 }
+
+// ----------------------------------------
+// Value size sweep
+//
+// Measures Get and SetOverwrite (batch=1000) at different value sizes.
+// Key count is adaptive to stay within ~10GB of disk per test:
+//   100B  → 10M keys  (~1 GB)
+//   1KB   → 10M keys  (~10 GB)
+//   10KB  → 1M keys   (~10 GB)
+//   100KB → 100K keys (~10 GB)
+//
+// Usage:
+//
+//	go test ./gnovm/cmd/benchstore/ -bench=ValueSizeGet -timeout=2h -db=lmdb
+//	go test ./gnovm/cmd/benchstore/ -bench=ValueSizeSet -timeout=2h -db=lmdb
+
+var valueSizeCases = []struct {
+	valSize int
+	numKeys int
+}{
+	{100, 10_000_000},
+	{1_000, 10_000_000},
+	{10_000, 1_000_000},
+	{100_000, 100_000},
+}
+
+func BenchmarkValueSizeGet(b *testing.B) {
+	requireDB(b)
+	for _, tc := range valueSizeCases {
+		tc := tc
+		var env *benchEnv
+		b.Run(fmt.Sprintf("val=%dB/keys=%d", tc.valSize, tc.numKeys), func(b *testing.B) {
+			if env == nil {
+				env = newBenchEnvWithValSize(b, tc.numKeys, tc.valSize)
+			}
+			rng := rand.New(rand.NewSource(42))
+			var sink []byte
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				key := make([]byte, 8)
+				binary.BigEndian.PutUint64(key, uint64(rng.Intn(tc.numKeys)))
+				sink, _ = env.db.Get(key)
+			}
+			runtime.KeepAlive(sink)
+		})
+		if env != nil {
+			env.Close()
+		}
+	}
+}
+
+func BenchmarkValueSizeSet(b *testing.B) {
+	requireDB(b)
+	for _, tc := range valueSizeCases {
+		tc := tc
+		var env *benchEnv
+		b.Run(fmt.Sprintf("val=%dB/keys=%d", tc.valSize, tc.numKeys), func(b *testing.B) {
+			if env == nil {
+				env = newBenchEnvWithValSize(b, tc.numKeys, tc.valSize)
+			}
+			rng := rand.New(rand.NewSource(42))
+			val := make([]byte, tc.valSize)
+			rng.Read(val)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				batch := env.db.NewBatch()
+				for j := 0; j < 1000; j++ {
+					key := make([]byte, 8)
+					binary.BigEndian.PutUint64(key, uint64(rng.Intn(tc.numKeys)))
+					batch.Set(key, val)
+				}
+				batch.Write()
+				batch.Close()
+			}
+			b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(int64(b.N)*1000), "ns/key")
+		})
+		if env != nil {
+			env.Close()
+		}
+	}
+}
+
+// newBenchEnvWithValSize is like newBenchEnv but with configurable value size.
+func newBenchEnvWithValSize(b *testing.B, n int, valSize int) *benchEnv {
+	b.Helper()
+	dir, err := os.MkdirTemp("", "gno-bench-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	db, err := openDB("bench", dir)
+	if err != nil {
+		os.RemoveAll(dir)
+		b.Fatal(err)
+	}
+
+	val := make([]byte, valSize)
+	prng := rand.New(rand.NewSource(0))
+	batch := db.NewBatch()
+	for i := 0; i < n; i++ {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(i))
+		prng.Read(val)
+		batch.Set(key, val)
+		if (i+1)%10000 == 0 {
+			batch.Write()
+			batch.Close()
+			batch = db.NewBatch()
+			printProgress("populate", i+1, n)
+		}
+	}
+	batch.Write()
+	batch.Close()
+	printProgress("populate", n, n)
+
+	// PebbleDB warmup.
+	if *flagDB == "pebbledb" {
+		cacheMB := 500
+		if *flagCacheMB > 0 {
+			cacheMB = *flagCacheMB
+		}
+		warmupReads := int(int64(cacheMB) << 20 / 4096)
+		if warmupReads > n {
+			warmupReads = n
+		}
+		rng := rand.New(rand.NewSource(99))
+		for i := 0; i < warmupReads; i++ {
+			key := make([]byte, 8)
+			binary.BigEndian.PutUint64(key, uint64(rng.Intn(n)))
+			db.Get(key)
+			if (i+1)%10000 == 0 {
+				printProgress("warmup", i+1, warmupReads)
+			}
+		}
+		printProgress("warmup", warmupReads, warmupReads)
+	}
+
+	return &benchEnv{db: db, dir: dir, n: n}
+}
