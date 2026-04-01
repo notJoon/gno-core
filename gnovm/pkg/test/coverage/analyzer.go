@@ -49,7 +49,7 @@ func (a *Analyzer) analyzeDecl(pkgPath, fileName string, decl gnolang.Decl) {
 	switch d := decl.(type) {
 	case *gnolang.FuncDecl:
 		// Analyze function body
-		if d.Body != nil && len(d.Body) > 0 {
+		if len(d.Body) > 0 {
 			for _, stmt := range d.Body {
 				a.analyzeStmt(pkgPath, fileName, stmt)
 			}
@@ -157,8 +157,8 @@ func (a *Analyzer) analyzeStmt(pkgPath, fileName string, stmt gnolang.Stmt) {
 
 	case *gnolang.DeclStmt:
 		// Declaration statements may contain initialization
-		if len(s.Body) > 0 {
-			// The declaration itself is tracked
+		for _, bodyStmt := range s.Body {
+			a.analyzeStmt(pkgPath, fileName, bodyStmt)
 		}
 	}
 }
