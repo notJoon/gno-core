@@ -48,15 +48,15 @@ func testCacheBatchWrite(t *testing.T, db dbm.DB) {
 	for i := 0; i < n; i++ {
 		k := fmt.Sprintf("key%04d", i)
 		v := fmt.Sprintf("val%04d", i)
-		cs.Set([]byte(k), []byte(v))
+		cs.Set(nil, []byte(k), []byte(v))
 	}
 	for i := 0; i < 50; i++ {
 		k := fmt.Sprintf("key%04d", i)
-		cs.Delete([]byte(k))
+		cs.Delete(nil, []byte(k))
 	}
 
 	// Not visible in parent yet.
-	val := parent.Get([]byte("key0100"))
+	val := parent.Get(nil, []byte("key0100"))
 	require.Nil(t, val)
 
 	cs.Write()
@@ -64,12 +64,12 @@ func testCacheBatchWrite(t *testing.T, db dbm.DB) {
 	for i := 50; i < n; i++ {
 		k := fmt.Sprintf("key%04d", i)
 		v := fmt.Sprintf("val%04d", i)
-		got := parent.Get([]byte(k))
+		got := parent.Get(nil, []byte(k))
 		require.Equal(t, []byte(v), got, "key %s", k)
 	}
 	for i := 0; i < 50; i++ {
 		k := fmt.Sprintf("key%04d", i)
-		got := parent.Get([]byte(k))
+		got := parent.Get(nil, []byte(k))
 		require.Nil(t, got, "key %s should be deleted", k)
 	}
 }
@@ -105,13 +105,13 @@ func testCacheBatchWriteOverwrite(t *testing.T, db dbm.DB) {
 	require.NoError(t, db.Set([]byte("existing"), []byte("old")))
 
 	cs := cache.New(parent)
-	cs.Set([]byte("existing"), []byte("new"))
-	cs.Set([]byte("fresh"), []byte("val"))
+	cs.Set(nil, []byte("existing"), []byte("new"))
+	cs.Set(nil, []byte("fresh"), []byte("val"))
 	cs.Write()
 
-	got := parent.Get([]byte("existing"))
+	got := parent.Get(nil, []byte("existing"))
 	require.Equal(t, []byte("new"), got)
-	got = parent.Get([]byte("fresh"))
+	got = parent.Get(nil, []byte("fresh"))
 	require.Equal(t, []byte("val"), got)
 }
 
@@ -177,11 +177,11 @@ func testCacheBatchWriteSetThenDelete(t *testing.T, db dbm.DB) {
 	parent := dbadapter.Store{DB: db}
 	cs := cache.New(parent)
 
-	cs.Set([]byte("k"), []byte("v"))
-	cs.Delete([]byte("k"))
+	cs.Set(nil, []byte("k"), []byte("v"))
+	cs.Delete(nil, []byte("k"))
 	cs.Write()
 
-	got := parent.Get([]byte("k"))
+	got := parent.Get(nil, []byte("k"))
 	require.Nil(t, got)
 }
 
@@ -197,10 +197,10 @@ func TestCacheBatchUsesDBBatch(t *testing.T) {
 	require.True(t, ok, "dbadapter.Store should implement GetDB()")
 
 	cs := cache.New(parent)
-	cs.Set([]byte("k"), []byte("v"))
+	cs.Set(nil, []byte("k"), []byte("v"))
 	cs.Write()
 
-	got := parent.Get([]byte("k"))
+	got := parent.Get(nil, []byte("k"))
 	require.Equal(t, []byte("v"), got)
 }
 
@@ -216,10 +216,10 @@ func TestCacheBatchUsesDBBatchMDBX(t *testing.T) {
 	require.True(t, ok, "dbadapter.Store should implement GetDB()")
 
 	cs := cache.New(parent)
-	cs.Set([]byte("k"), []byte("v"))
+	cs.Set(nil, []byte("k"), []byte("v"))
 	cs.Write()
 
-	got := parent.Get([]byte("k"))
+	got := parent.Get(nil, []byte("k"))
 	require.Equal(t, []byte("v"), got)
 }
 
@@ -229,21 +229,21 @@ type nonBatchStore struct {
 	db dbm.DB
 }
 
-func (s nonBatchStore) Get(key []byte) []byte {
+func (s nonBatchStore) Get(gctx *store.GasContext, key []byte) []byte {
 	v, _ := s.db.Get(key)
 	return v
 }
-func (s nonBatchStore) Has(key []byte) bool {
+func (s nonBatchStore) Has(gctx *store.GasContext, key []byte) bool {
 	v, _ := s.db.Has(key)
 	return v
 }
-func (s nonBatchStore) Set(key, value []byte) { s.db.Set(key, value) }
-func (s nonBatchStore) Delete(key []byte)     { s.db.Delete(key) }
-func (s nonBatchStore) Iterator(start, end []byte) store.Iterator {
+func (s nonBatchStore) Set(gctx *store.GasContext, key, value []byte) { s.db.Set(key, value) }
+func (s nonBatchStore) Delete(gctx *store.GasContext, key []byte)     { s.db.Delete(key) }
+func (s nonBatchStore) Iterator(gctx *store.GasContext, start, end []byte) store.Iterator {
 	it, _ := s.db.Iterator(start, end)
 	return it
 }
-func (s nonBatchStore) ReverseIterator(start, end []byte) store.Iterator {
+func (s nonBatchStore) ReverseIterator(gctx *store.GasContext, start, end []byte) store.Iterator {
 	it, _ := s.db.ReverseIterator(start, end)
 	return it
 }
@@ -261,9 +261,9 @@ func TestCacheFallbackWritePebbleDB(t *testing.T) {
 
 	parent := nonBatchStore{db: db}
 	cs := cache.New(parent)
-	cs.Set([]byte("k1"), []byte("v1"))
-	cs.Set([]byte("k2"), []byte("v2"))
-	cs.Delete([]byte("k2"))
+	cs.Set(nil, []byte("k1"), []byte("v1"))
+	cs.Set(nil, []byte("k2"), []byte("v2"))
+	cs.Delete(nil, []byte("k2"))
 	cs.Write()
 
 	v, err := db.Get([]byte("k1"))
@@ -283,7 +283,7 @@ func TestCacheFallbackWriteLMDB(t *testing.T) {
 
 	parent := nonBatchStore{db: db}
 	cs := cache.New(parent)
-	cs.Set([]byte("k1"), []byte("v1"))
+	cs.Set(nil, []byte("k1"), []byte("v1"))
 	cs.Write()
 
 	v, err := db.Get([]byte("k1"))
@@ -299,7 +299,7 @@ func TestCacheFallbackWriteMDBX(t *testing.T) {
 
 	parent := nonBatchStore{db: db}
 	cs := cache.New(parent)
-	cs.Set([]byte("k1"), []byte("v1"))
+	cs.Set(nil, []byte("k1"), []byte("v1"))
 	cs.Write()
 
 	v, err := db.Get([]byte("k1"))
@@ -315,7 +315,7 @@ func TestCacheClearedAfterWritePebbleDB(t *testing.T) {
 
 	parent := dbadapter.Store{DB: db}
 	cs := cache.New(parent)
-	cs.Set([]byte("k"), []byte("v1"))
+	cs.Set(nil, []byte("k"), []byte("v1"))
 	cs.Write()
 
 	// After Write, cache is cleared. A second Write is a no-op.
@@ -323,7 +323,7 @@ func TestCacheClearedAfterWritePebbleDB(t *testing.T) {
 
 	// Update the parent directly — cache should not mask it.
 	require.NoError(t, db.Set([]byte("k"), []byte("v2")))
-	got := cs.Get([]byte("k"))
+	got := cs.Get(nil, []byte("k"))
 	require.Equal(t, []byte("v2"), got)
 }
 
@@ -335,13 +335,13 @@ func TestCacheClearedAfterWriteLMDB(t *testing.T) {
 
 	parent := dbadapter.Store{DB: db}
 	cs := cache.New(parent)
-	cs.Set([]byte("k"), []byte("v1"))
+	cs.Set(nil, []byte("k"), []byte("v1"))
 	cs.Write()
 
 	cs.Write() // second Write is no-op
 
 	require.NoError(t, db.Set([]byte("k"), []byte("v2")))
-	got := cs.Get([]byte("k"))
+	got := cs.Get(nil, []byte("k"))
 	require.Equal(t, []byte("v2"), got)
 }
 
@@ -353,12 +353,12 @@ func TestCacheClearedAfterWriteMDBX(t *testing.T) {
 
 	parent := dbadapter.Store{DB: db}
 	cs := cache.New(parent)
-	cs.Set([]byte("k"), []byte("v1"))
+	cs.Set(nil, []byte("k"), []byte("v1"))
 	cs.Write()
 
 	cs.Write() // second Write is no-op
 
 	require.NoError(t, db.Set([]byte("k"), []byte("v2")))
-	got := cs.Get([]byte("k"))
+	got := cs.Get(nil, []byte("k"))
 	require.Equal(t, []byte("v2"), got)
 }

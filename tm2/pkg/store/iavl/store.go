@@ -160,7 +160,7 @@ func (st *Store) Write() {
 }
 
 // Implements types.Store.
-func (st *Store) Set(key, value []byte) {
+func (st *Store) Set(gctx *types.GasContext, key, value []byte) {
 	types.AssertValidValue(value)
 	_, err := st.tree.Set(key, value)
 	if err != nil {
@@ -169,7 +169,7 @@ func (st *Store) Set(key, value []byte) {
 }
 
 // Implements types.Store.
-func (st *Store) Get(key []byte) (value []byte) {
+func (st *Store) Get(gctx *types.GasContext, key []byte) (value []byte) {
 	v, err := st.tree.Get(key)
 	if err != nil {
 		panic(err)
@@ -178,7 +178,7 @@ func (st *Store) Get(key []byte) (value []byte) {
 }
 
 // Implements types.Store.
-func (st *Store) Has(key []byte) (exists bool) {
+func (st *Store) Has(gctx *types.GasContext, key []byte) (exists bool) {
 	has, err := st.tree.Has(key)
 	if err != nil {
 		panic(err)
@@ -187,7 +187,7 @@ func (st *Store) Has(key []byte) (exists bool) {
 }
 
 // Implements types.Store.
-func (st *Store) Delete(key []byte) {
+func (st *Store) Delete(gctx *types.GasContext, key []byte) {
 	_, _, err := st.tree.Remove(key)
 	if err != nil {
 		panic(err)
@@ -195,7 +195,7 @@ func (st *Store) Delete(key []byte) {
 }
 
 // Implements types.Store.
-func (st *Store) Iterator(start, end []byte) types.Iterator {
+func (st *Store) Iterator(gctx *types.GasContext, start, end []byte) types.Iterator {
 	var iTree *iavl.ImmutableTree
 
 	switch tree := st.tree.(type) {
@@ -209,7 +209,7 @@ func (st *Store) Iterator(start, end []byte) types.Iterator {
 }
 
 // Implements types.Store.
-func (st *Store) ReverseIterator(start, end []byte) types.Iterator {
+func (st *Store) ReverseIterator(gctx *types.GasContext, start, end []byte) types.Iterator {
 	var iTree *iavl.ImmutableTree
 
 	switch tree := st.tree.(type) {

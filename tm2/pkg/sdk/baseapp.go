@@ -186,7 +186,7 @@ func (app *BaseApp) initFromMainStore() error {
 	if app.checkState != nil {
 		panic("Consensus Params are already set in app, we should not overwrite it here")
 	}
-	consensusParamsBz := mainStore.Get(mainConsensusParamsKey)
+	consensusParamsBz := mainStore.Get(nil, mainConsensusParamsKey)
 	if consensusParamsBz != nil {
 		consensusParams := &abci.ConsensusParams{}
 		err := amino.Unmarshal(consensusParamsBz, consensusParams)
@@ -199,7 +199,7 @@ func (app *BaseApp) initFromMainStore() error {
 
 	// Load the consensus header from the main store.
 	// This is needed to setCheckState with the right chainID etc.
-	lastHeaderBz := baseStore.Get(mainLastHeaderKey)
+	lastHeaderBz := baseStore.Get(nil, mainLastHeaderKey)
 	if lastHeaderBz != nil {
 		lastHeader := &bft.Header{}
 		err := amino.Unmarshal(lastHeaderBz, lastHeader)
@@ -275,7 +275,7 @@ func (app *BaseApp) storeConsensusParams(consensusParams *abci.ConsensusParams) 
 		panic(err)
 	}
 	mainStore := app.cms.GetStore(app.mainKey)
-	mainStore.Set(mainConsensusParamsKey, consensusParamsBz)
+	mainStore.Set(nil, mainConsensusParamsKey, consensusParamsBz)
 }
 
 // getMaximumBlockGas gets the maximum gas from the consensus params. It panics
@@ -933,7 +933,7 @@ func (app *BaseApp) Commit() (res abci.ResponseCommit) {
 		return
 	}
 	headerBz := amino.MustMarshal(header)
-	baseStore.Set(mainLastHeaderKey, headerBz)
+	baseStore.Set(nil, mainLastHeaderKey, headerBz)
 
 	// Reset the Check state to the latest committed.
 	//

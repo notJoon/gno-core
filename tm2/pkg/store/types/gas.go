@@ -18,6 +18,93 @@ const (
 	GasDeleteDesc           = "Delete"
 )
 
+// GasContext carries a gas meter and config through the store stack.
+// All methods are nil-safe: if gctx is nil, they are no-ops (returning
+// 0 for methods that return Gas).
+type GasContext struct {
+	Meter  GasMeter
+	Config GasConfig
+}
+
+// WillGet charges ReadCostFlat. Used by non-depth stores only;
+// depth stores use ConsumeGas directly.
+func (gctx *GasContext) WillGet() {
+	if gctx == nil {
+		return
+	}
+	gctx.Meter.ConsumeGas(gctx.Config.ReadCostFlat, GasReadCostFlatDesc)
+}
+
+// DidGet charges ReadCostPerByte * len(bz).
+func (gctx *GasContext) DidGet(bz []byte) {
+	if gctx == nil {
+		return
+	}
+	gas := overflow.Mulp(gctx.Config.ReadCostPerByte, Gas(len(bz)))
+	gctx.Meter.ConsumeGas(gas, GasReadPerByteDesc)
+}
+
+// WillSet charges WriteCostFlat + WriteCostPerByte * len(bz).
+// Returns the total amount charged.
+func (gctx *GasContext) WillSet(bz []byte) Gas {
+	if gctx == nil {
+		return 0
+	}
+	flat := gctx.Config.WriteCostFlat
+	perByte := overflow.Mulp(gctx.Config.WriteCostPerByte, Gas(len(bz)))
+	total := overflow.Addp(flat, perByte)
+	gctx.Meter.ConsumeGas(total, GasWriteCostFlatDesc)
+	return total
+}
+
+// WillDelete charges DeleteCost. Returns the amount charged.
+func (gctx *GasContext) WillDelete() Gas {
+	if gctx == nil {
+		return 0
+	}
+	gctx.Meter.ConsumeGas(gctx.Config.DeleteCost, GasDeleteDesc)
+	return gctx.Config.DeleteCost
+}
+
+// RefundGas refunds previously charged gas.
+func (gctx *GasContext) RefundGas(amount Gas) {
+	if gctx == nil {
+		return
+	}
+	gctx.Meter.RefundGas(amount, "Refund")
+}
+
+// ConsumeGas charges gas directly.
+func (gctx *GasContext) ConsumeGas(amount Gas, descriptor string) {
+	if gctx == nil {
+		return
+	}
+	gctx.Meter.ConsumeGas(amount, descriptor)
+}
+
+// WillIterator charges flat seek cost for iterator creation.
+func (gctx *GasContext) WillIterator() {
+	if gctx == nil {
+		return
+	}
+	gctx.Meter.ConsumeGas(gctx.Config.IterNextCostFlat, GasIterNextCostFlatDesc)
+}
+
+// WillIterNext charges flat cost per iteration step.
+func (gctx *GasContext) WillIterNext() {
+	if gctx == nil {
+		return
+	}
+	gctx.Meter.ConsumeGas(gctx.Config.IterNextCostFlat, GasIterNextCostFlatDesc)
+}
+
+// DepthEstimator is implemented by stores that have depth-dependent
+// I/O cost (e.g., IAVL trees). The expected depth is used by
+// cache.Store to estimate gas for reads/writes.
+type DepthEstimator interface {
+	ExpectedDepth() int64
+}
+
 // Gas measured by the SDK
 type Gas = int64
 
@@ -47,6 +134,7 @@ type GasMeter interface {
 	Limit() Gas
 	Remaining() Gas
 	ConsumeGas(amount Gas, descriptor string)
+	RefundGas(amount Gas, descriptor string)
 	IsPastLimit() bool
 	IsOutOfGas() bool
 }
@@ -106,6 +194,16 @@ func (g *basicGasMeter) ConsumeGas(amount Gas, descriptor string) {
 	}
 }
 
+func (g *basicGasMeter) RefundGas(amount Gas, descriptor string) {
+	if amount < 0 {
+		panic("gas must not be negative")
+	}
+	g.consumed -= amount
+	if g.consumed < 0 {
+		g.consumed = 0
+	}
+}
+
 func (g *basicGasMeter) IsPastLimit() bool {
 	return g.consumed > g.limit
 }
@@ -150,6 +248,16 @@ func (g *infiniteGasMeter) ConsumeGas(amount Gas, descriptor string) {
 		panic(GasOverflowError{descriptor})
 	}
 	g.consumed = consumed
+}
+
+func (g *infiniteGasMeter) RefundGas(amount Gas, descriptor string) {
+	if amount < 0 {
+		panic("gas must not be negative")
+	}
+	g.consumed -= amount
+	if g.consumed < 0 {
+		g.consumed = 0
+	}
 }
 
 func (g *infiniteGasMeter) IsPastLimit() bool {
@@ -204,6 +312,11 @@ func (g passthroughGasMeter) ConsumeGas(amount Gas, descriptor string) {
 	g.Head.ConsumeGas(amount, descriptor)
 }
 
+func (g passthroughGasMeter) RefundGas(amount Gas, descriptor string) {
+	g.Base.RefundGas(amount, descriptor)
+	g.Head.RefundGas(amount, descriptor)
+}
+
 func (g passthroughGasMeter) IsPastLimit() bool {
 	return g.Head.IsPastLimit()
 }
@@ -214,7 +327,7 @@ func (g passthroughGasMeter) IsOutOfGas() bool {
 
 //----------------------------------------
 
-// GasConfig defines gas cost for each operation on KVStores
+// GasConfig defines gas cost for each operation on KVStores.
 type GasConfig struct {
 	HasCost          Gas
 	DeleteCost       Gas
@@ -223,9 +336,11 @@ type GasConfig struct {
 	WriteCostFlat    Gas
 	WriteCostPerByte Gas
 	IterNextCostFlat Gas
+	MinDepth         Gas // floor for DepthEstimator (0 = no floor)
 }
 
 // DefaultGasConfig returns a default gas config for KVStores.
+// These are the tm2 defaults (uncalibrated legacy values from Cosmos SDK).
 func DefaultGasConfig() GasConfig {
 	return GasConfig{
 		HasCost:          1000,
@@ -235,5 +350,6 @@ func DefaultGasConfig() GasConfig {
 		WriteCostFlat:    2000,
 		WriteCostPerByte: 30,
 		IterNextCostFlat: 30,
+		MinDepth:         0,
 	}
 }

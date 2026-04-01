@@ -179,6 +179,18 @@ func (c Context) Store(key store.StoreKey) store.Store {
 	return c.MultiStore().GetStore(key)
 }
 
+// GasContext returns a *GasContext for use with Store methods, or nil if
+// no gas metering is desired.
+func (c Context) GasContext() *store.GasContext {
+	if c.GasMeter() == nil {
+		return nil
+	}
+	return &store.GasContext{
+		Meter:  c.GasMeter(),
+		Config: store.DefaultGasConfig(),
+	}
+}
+
 // CacheContext returns a new Context with the multi-store cached and a new
 // EventLogger . The cached context is written to the context when writeCache
 // is called.

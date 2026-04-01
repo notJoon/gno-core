@@ -46,7 +46,7 @@ func TestAddPkgDeliverTxInsuffGas(t *testing.T) {
 			assert.True(t, abort)
 			assert.False(t, res.IsOK())
 			gasCheck := gctx.GasMeter().GasConsumed()
-			assert.Equal(t, int64(3462), gasCheck)
+			assert.Equal(t, int64(32774), gasCheck)
 		} else {
 			t.Errorf("should panic")
 		}
@@ -71,7 +71,7 @@ func TestAddPkgDeliverTx(t *testing.T) {
 	assert.True(t, res.IsOK())
 
 	// NOTE: let's try to keep this bellow 250_000 :)
-	assert.Equal(t, int64(226157), gasDeliver)
+	assert.Equal(t, int64(192922), gasDeliver)
 }
 
 // Enough gas for a failed transaction.
@@ -88,42 +88,15 @@ func TestAddPkgDeliverTxFailed(t *testing.T) {
 	gasDeliver := gctx.GasMeter().GasConsumed()
 
 	assert.False(t, res.IsOK())
-	assert.Equal(t, int64(1231), gasDeliver)
+	assert.Equal(t, int64(0), gasDeliver)
 }
 
 // Not enough gas for a failed transaction.
+// NOTE: With auth storage gas temporarily removed (commit 1 of gas
+// refactor), a failed tx consumes 0 gas, so this test is skipped until
+// gas charging is restored at the cache.Store boundary in commit 2.
 func TestAddPkgDeliverTxFailedNoGas(t *testing.T) {
-	isValidTx := false
-	ctx, tx, vmHandler := setupAddPkg(isValidTx)
-
-	ctx = ctx.WithMode(sdk.RunTxModeDeliver)
-	tx.Fee.GasWanted = 1230
-	gctx := auth.SetGasMeter(ctx, tx.Fee.GasWanted)
-	gctx = vmHandler.vm.MakeGnoTransactionStore(gctx)
-
-	var res sdk.Result
-	abort := false
-
-	defer func() {
-		if r := recover(); r != nil {
-			switch r.(type) {
-			case store.OutOfGasError:
-				res.Error = sdk.ABCIError(std.ErrOutOfGas(""))
-				abort = true
-			default:
-				t.Errorf("should panic on OutOfGasException only")
-			}
-			assert.True(t, abort)
-			assert.False(t, res.IsOK())
-			gasCheck := gctx.GasMeter().GasConsumed()
-			assert.Equal(t, int64(1231), gasCheck)
-		} else {
-			t.Errorf("should panic")
-		}
-	}()
-
-	msgs := tx.GetMsgs()
-	res = vmHandler.Process(gctx, msgs[0])
+	t.Skip("auth storage gas temporarily removed; will be restored in gas refactor commit 2")
 }
 
 // Set up a test env for both a successful and a failed tx.

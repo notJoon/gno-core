@@ -58,14 +58,14 @@ func New(parent types.Store) *cacheStore {
 }
 
 // Implements types.Store.
-func (store *cacheStore) Get(key []byte) (value []byte) {
+func (store *cacheStore) Get(gctx *types.GasContext, key []byte) (value []byte) {
 	store.mtx.Lock()
 	defer store.mtx.Unlock()
 	types.AssertValidKey(key)
 
 	cacheValue, ok := store.cache[string(key)]
 	if !ok {
-		value = store.parent.Get(key)
+		value = store.parent.Get(nil, key)
 		store.setCacheValue(key, value, false, false)
 	} else {
 		value = cacheValue.value
@@ -75,7 +75,7 @@ func (store *cacheStore) Get(key []byte) (value []byte) {
 }
 
 // Implements types.Store.
-func (store *cacheStore) Set(key []byte, value []byte) {
+func (store *cacheStore) Set(gctx *types.GasContext, key []byte, value []byte) {
 	store.mtx.Lock()
 	defer store.mtx.Unlock()
 	types.AssertValidKey(key)
@@ -85,13 +85,13 @@ func (store *cacheStore) Set(key []byte, value []byte) {
 }
 
 // Implements types.Store.
-func (store *cacheStore) Has(key []byte) bool {
-	value := store.Get(key)
+func (store *cacheStore) Has(gctx *types.GasContext, key []byte) bool {
+	value := store.Get(gctx, key)
 	return value != nil
 }
 
 // Implements types.Store.
-func (store *cacheStore) Delete(key []byte) {
+func (store *cacheStore) Delete(gctx *types.GasContext, key []byte) {
 	store.mtx.Lock()
 	defer store.mtx.Unlock()
 	types.AssertValidKey(key)
@@ -142,11 +142,11 @@ func (store *cacheStore) Write() {
 		for _, key := range keys {
 			cacheValue := store.cache[key]
 			if cacheValue.deleted {
-				store.parent.Delete([]byte(key))
+				store.parent.Delete(nil, []byte(key))
 			} else if cacheValue.value == nil {
 				// Skip, it already doesn't exist in parent.
 			} else {
-				store.parent.Set([]byte(key), cacheValue.value)
+				store.parent.Set(nil, []byte(key), cacheValue.value)
 			}
 		}
 	}
@@ -180,25 +180,25 @@ func (store *cacheStore) CacheWrap() types.Store {
 // Iteration
 
 // Implements types.Store.
-func (store *cacheStore) Iterator(start, end []byte) types.Iterator {
-	return store.iterator(start, end, true)
+func (store *cacheStore) Iterator(gctx *types.GasContext, start, end []byte) types.Iterator {
+	return store.iterator(gctx, start, end, true)
 }
 
 // Implements types.Store.
-func (store *cacheStore) ReverseIterator(start, end []byte) types.Iterator {
-	return store.iterator(start, end, false)
+func (store *cacheStore) ReverseIterator(gctx *types.GasContext, start, end []byte) types.Iterator {
+	return store.iterator(gctx, start, end, false)
 }
 
-func (store *cacheStore) iterator(start, end []byte, ascending bool) types.Iterator {
+func (store *cacheStore) iterator(gctx *types.GasContext, start, end []byte, ascending bool) types.Iterator {
 	store.mtx.Lock()
 	defer store.mtx.Unlock()
 
 	var parent, cache types.Iterator
 
 	if ascending {
-		parent = store.parent.Iterator(start, end)
+		parent = store.parent.Iterator(nil, start, end)
 	} else {
-		parent = store.parent.ReverseIterator(start, end)
+		parent = store.parent.ReverseIterator(nil, start, end)
 	}
 
 	store.dirtyItems(start, end)

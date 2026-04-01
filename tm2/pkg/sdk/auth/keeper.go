@@ -66,8 +66,8 @@ func (ak AccountKeeper) Logger(ctx sdk.Context) *slog.Logger {
 
 // GetAccount returns a specific account in the AccountKeeper.
 func (ak AccountKeeper) GetAccount(ctx sdk.Context, addr crypto.Address) std.Account {
-	stor := ctx.GasStore(ak.key)
-	bz := stor.Get(AddressStoreKey(addr))
+	stor := ctx.Store(ak.key)
+	bz := stor.Get(nil, AddressStoreKey(addr))
 	if bz == nil {
 		return nil
 	}
@@ -89,25 +89,25 @@ func (ak AccountKeeper) GetAllAccounts(ctx sdk.Context) []std.Account {
 // SetAccount implements AccountKeeper.
 func (ak AccountKeeper) SetAccount(ctx sdk.Context, acc std.Account) {
 	addr := acc.GetAddress()
-	stor := ctx.GasStore(ak.key)
+	stor := ctx.Store(ak.key)
 	bz, err := amino.MarshalAny(acc)
 	if err != nil {
 		panic(err)
 	}
-	stor.Set(AddressStoreKey(addr), bz)
+	stor.Set(nil, AddressStoreKey(addr), bz)
 }
 
 // RemoveAccount removes an account for the account mapper store.
 // NOTE: this will cause supply invariant violation if called
 func (ak AccountKeeper) RemoveAccount(ctx sdk.Context, acc std.Account) {
 	addr := acc.GetAddress()
-	stor := ctx.GasStore(ak.key)
-	stor.Delete(AddressStoreKey(addr))
+	stor := ctx.Store(ak.key)
+	stor.Delete(nil, AddressStoreKey(addr))
 }
 
 // IterateAccounts implements AccountKeeper.
 func (ak AccountKeeper) IterateAccounts(ctx sdk.Context, process func(std.Account) (stop bool)) {
-	stor := ctx.GasStore(ak.key)
+	stor := ctx.Store(ak.key)
 	iter := store.PrefixIterator(stor, []byte(AddressStoreKeyPrefix))
 	defer iter.Close()
 	for {
@@ -144,8 +144,8 @@ func (ak AccountKeeper) GetSequence(ctx sdk.Context, addr crypto.Address) (uint6
 // GetNextAccountNumber Returns and increments the global account number counter
 func (ak AccountKeeper) GetNextAccountNumber(ctx sdk.Context) uint64 {
 	var accNumber uint64
-	stor := ctx.GasStore(ak.key)
-	bz := stor.Get([]byte(GlobalAccountNumberKey))
+	stor := ctx.Store(ak.key)
+	bz := stor.Get(nil, []byte(GlobalAccountNumberKey))
 	if bz == nil {
 		accNumber = 0 // start with 0.
 	} else {
@@ -156,7 +156,7 @@ func (ak AccountKeeper) GetNextAccountNumber(ctx sdk.Context) uint64 {
 	}
 
 	bz = amino.MustMarshal(accNumber + 1)
-	stor.Set([]byte(GlobalAccountNumberKey), bz)
+	stor.Set(nil, []byte(GlobalAccountNumberKey), bz)
 
 	return accNumber
 }
@@ -196,7 +196,7 @@ func (gk GasPriceKeeper) SetGasPrice(ctx sdk.Context, gp std.GasPrice) {
 	if err != nil {
 		panic(err)
 	}
-	stor.Set([]byte(GasPriceKey), bz)
+	stor.Set(nil, []byte(GasPriceKey), bz)
 }
 
 // We store the history. If the formula changes, we can replay blocks
@@ -314,7 +314,7 @@ func maxBig(x, y *big.Int) *big.Int {
 // It returns the gas price for the last block.
 func (gk GasPriceKeeper) LastGasPrice(ctx sdk.Context) std.GasPrice {
 	stor := ctx.Store(gk.key)
-	bz := stor.Get([]byte(GasPriceKey))
+	bz := stor.Get(nil, []byte(GasPriceKey))
 	if bz == nil {
 		return std.GasPrice{}
 	}

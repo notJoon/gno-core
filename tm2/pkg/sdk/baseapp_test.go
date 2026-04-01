@@ -344,7 +344,7 @@ func TestInitChainer(t *testing.T) {
 	key, value := []byte("hello"), []byte("goodbye")
 	var initChainer InitChainer = func(ctx Context, req abci.RequestInitChain) abci.ResponseInitChain {
 		store := ctx.Store(mainKey)
-		store.Set(key, value)
+		store.Set(nil, key, value)
 		return abci.ResponseInitChain{}
 	}
 
@@ -447,7 +447,7 @@ func anteHandlerTxTest(t *testing.T, capKey store.StoreKey, storeKey []byte) Ant
 	t.Helper()
 
 	return func(ctx Context, tx std.Tx, simulate bool) (newCtx Context, res Result, abort bool) {
-		store := ctx.GasStore(capKey)
+		store := ctx.Store(capKey)
 		if getFailOnAnte(tx) {
 			res.Error = ABCIError(std.ErrInternal("ante handler failure"))
 			return newCtx, res, true
@@ -513,7 +513,7 @@ func (mch msgCounterHandler) Query(ctx Context, req abci.RequestQuery) abci.Resp
 }
 
 func getIntFromStore(store store.Store, key []byte) int64 {
-	bz := store.Get(key)
+	bz := store.Get(nil, key)
 	if len(bz) == 0 {
 		return 0
 	}
@@ -527,7 +527,7 @@ func getIntFromStore(store store.Store, key []byte) int64 {
 func setIntOnStore(store store.Store, key []byte, i int64) {
 	bz := make([]byte, 8)
 	n := binary.PutVarint(bz, i)
-	store.Set(key, bz[:n])
+	store.Set(nil, key, bz[:n])
 }
 
 // check counter matches what's in store.
@@ -589,7 +589,7 @@ func TestCheckTx(t *testing.T) {
 	app.Commit()
 
 	checkStateStore = app.checkState.ctx.Store(mainKey)
-	storedBytes := checkStateStore.Get(counterKey)
+	storedBytes := checkStateStore.Get(nil, counterKey)
 	require.Nil(t, storedBytes)
 }
 
@@ -1181,7 +1181,7 @@ func TestQuery(t *testing.T) {
 		bapp.SetAnteHandler(func(ctx Context, tx Tx, simulate bool) (newCtx Context, res Result, abort bool) {
 			newCtx = ctx
 			store := ctx.Store(mainKey)
-			store.Set(key, value)
+			store.Set(nil, key, value)
 			return
 		})
 	}
@@ -1189,7 +1189,7 @@ func TestQuery(t *testing.T) {
 	routerOpt := func(bapp *BaseApp) {
 		bapp.Router().AddRoute(routeMsgCounter, newTestHandler(func(ctx Context, msg Msg) Result {
 			store := ctx.Store(mainKey)
-			store.Set(key, value)
+			store.Set(nil, key, value)
 			return Result{}
 		}))
 	}

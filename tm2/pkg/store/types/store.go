@@ -11,37 +11,39 @@ import (
 
 type Store interface {
 	// Get returns nil iff key doesn't exist. Panics on nil key.
-	Get(key []byte) []byte
+	// If gctx is non-nil, gas is charged at the appropriate layer.
+	Get(gctx *GasContext, key []byte) []byte
 
 	// Has checks if a key exists. Panics on nil key.
-	Has(key []byte) bool
+	Has(gctx *GasContext, key []byte) bool
 
 	// Set sets the key. Panics on nil key or value.
-	Set(key, value []byte)
+	Set(gctx *GasContext, key, value []byte)
 
 	// Delete deletes the key. Panics on nil key.
-	Delete(key []byte)
+	Delete(gctx *GasContext, key []byte)
 
 	// Iterator over a domain of keys in ascending order. End is exclusive.
 	// Start must be less than end, or the Iterator is invalid.
 	// Iterator must be closed by caller.
-	// To iterate over entire domain, use store.Iterator(nil, nil)
+	// To iterate over entire domain, use store.Iterator(nil, nil, nil)
 	// CONTRACT: No writes may happen within a domain while an iterator exists over it.
 	// Exceptionally allowed for cachekv.Store, safe to write in the modules.
-	Iterator(start, end []byte) Iterator
+	Iterator(gctx *GasContext, start, end []byte) Iterator
 
 	// Iterator over a domain of keys in descending order. End is exclusive.
 	// Start must be less than end, or the Iterator is invalid.
 	// Iterator must be closed by caller.
 	// CONTRACT: No writes may happen within a domain while an iterator exists over it.
 	// Exceptionally allowed for cachekv.Store, safe to write in the modules.
-	ReverseIterator(start, end []byte) Iterator
+	ReverseIterator(gctx *GasContext, start, end []byte) Iterator
 
 	// Returns a cache-wrapped store.
 	CacheWrap() Store
 
 	// If cache-wrapped store, writes to underlying store.
-	// Does not writes through layers of cache.
+	// Does not write through layers of cache.
+	// No gctx — write cost was already charged at Set() time.
 	Write()
 }
 
