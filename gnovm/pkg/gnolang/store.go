@@ -41,7 +41,7 @@ type NativeResolver func(pkgName string, name Name) func(m *Machine)
 // blockchain, or the file system.
 type Store interface {
 	// STABLE
-	BeginTransaction(baseStore, iavlStore store.Store, gasMeter store.GasMeter) TransactionStore
+	BeginTransaction(baseStore, iavlStore store.Store, gctx *store.GasContext, gasMeter store.GasMeter) TransactionStore
 	GetPackageGetter() PackageGetter
 	SetPackageGetter(PackageGetter)
 	GetPackage(pkgPath string, isImport bool) *PackageValue
@@ -168,6 +168,7 @@ type defaultStore struct {
 	current []string  // for detecting import cycles.
 
 	// gas
+	gctx      *store.GasContext // for storage I/O gas (nil = no charging)
 	gasMeter  store.GasMeter
 	gasConfig GasConfig
 
@@ -212,7 +213,7 @@ func NewStore(alloc *Allocator, baseStore, iavlStore store.Store) *defaultStore 
 }
 
 // If nil baseStore and iavlStore, the baseStores are re-used.
-func (ds *defaultStore) BeginTransaction(baseStore, iavlStore store.Store, gasMeter store.GasMeter) TransactionStore {
+func (ds *defaultStore) BeginTransaction(baseStore, iavlStore store.Store, gctx *store.GasContext, gasMeter store.GasMeter) TransactionStore {
 	if baseStore == nil {
 		baseStore = ds.baseStore
 	}
@@ -234,7 +235,8 @@ func (ds *defaultStore) BeginTransaction(baseStore, iavlStore store.Store, gasMe
 		pkgGetter:      ds.pkgGetter,
 		nativeResolver: ds.nativeResolver,
 
-		// gas meter
+		// gas
+		gctx:       gctx,
 		gasMeter:   gasMeter,
 		gasConfig:  ds.gasConfig,
 		aminoCache: ds.aminoCache,
@@ -270,11 +272,11 @@ func CopyFromCachedStore(destStore, cachedStore Store, cachedBase, cachedIavl st
 
 	iter := cachedBase.Iterator(nil, nil, nil)
 	for ; iter.Valid(); iter.Next() {
-		ds.baseStore.Set(nil, iter.Key(), iter.Value())
+		ds.baseStore.Set(ds.gctx, iter.Key(), iter.Value())
 	}
 	iter = cachedIavl.Iterator(nil, nil, nil)
 	for ; iter.Valid(); iter.Next() {
-		ds.iavlStore.Set(nil, iter.Key(), iter.Value())
+		ds.iavlStore.Set(ds.gctx, iter.Key(), iter.Value())
 	}
 
 	for k, v := range ss.cacheNodes.Iterate() {
@@ -381,7 +383,7 @@ func (ds *defaultStore) GetPackageRealm(pkgPath string) (rlm *Realm) {
 	}
 	oid := ObjectIDFromPkgPath(pkgPath)
 	key := backendRealmKey(oid)
-	bz := ds.baseStore.Get(nil, []byte(key))
+	bz := ds.baseStore.Get(ds.gctx, []byte(key))
 	if bz == nil {
 		return nil
 	}
@@ -410,7 +412,7 @@ func (ds *defaultStore) SetPackageRealm(rlm *Realm) {
 	bz := amino.MustMarshal(rlm)
 	gas := overflow.Mulp(ds.gasConfig.GasSetPackageRealm, store.Gas(len(bz)))
 	ds.consumeGas(gas, GasSetPackageRealmDesc)
-	ds.baseStore.Set(nil, []byte(key), bz)
+	ds.baseStore.Set(ds.gctx, []byte(key), bz)
 	size = len(bz)
 }
 
@@ -450,7 +452,7 @@ func (ds *defaultStore) loadObjectSafe(oid ObjectID) Object {
 		defer func() { bm.StopStore(bm.StoreGetObject, old, size) }()
 	}
 	key := backendObjectKey(oid)
-	hashbz := ds.baseStore.Get(nil, []byte(key))
+	hashbz := ds.baseStore.Get(ds.gctx, []byte(key))
 	if hashbz != nil {
 		size = len(hashbz)
 		hash := hashbz[:HashSize]
@@ -658,7 +660,7 @@ func (ds *defaultStore) SetObject(oo Object) int64 {
 		hashbz := make([]byte, len(hash)+len(bz))
 		copy(hashbz, hash.Bytes())
 		copy(hashbz[HashSize:], bz)
-		ds.baseStore.Set(nil, []byte(key), hashbz)
+		ds.baseStore.Set(ds.gctx, []byte(key), hashbz)
 		size = len(hashbz)
 		oo.GetObjectInfo().LastObjectSize = int64(size)
 	}
@@ -681,14 +683,14 @@ func (ds *defaultStore) SetObject(oo Object) int64 {
 		var key, value []byte
 		key = []byte(oid.String())
 		value = hash.Bytes()
-		ds.iavlStore.Set(nil, key, value)
+		ds.iavlStore.Set(ds.gctx, key, value)
 	}
 	return diff
 }
 
 func (ds *defaultStore) loadForLog(oid ObjectID) Object {
 	key := backendObjectKey(oid)
-	hashbz := ds.baseStore.Get(nil, []byte(key))
+	hashbz := ds.baseStore.Get(ds.gctx, []byte(key))
 	if hashbz == nil {
 		return nil
 	}
@@ -712,12 +714,12 @@ func (ds *defaultStore) DelObject(oo Object) int64 {
 	// delete from backend.
 	if ds.baseStore != nil {
 		key := backendObjectKey(oid)
-		ds.baseStore.Delete(nil, []byte(key))
+		ds.baseStore.Delete(ds.gctx, []byte(key))
 	}
 	// delete escaped hash from iavl.
 	if oo.GetIsEscaped() && ds.iavlStore != nil {
 		key := []byte(oid.String())
-		ds.iavlStore.Delete(nil, key)
+		ds.iavlStore.Delete(ds.gctx, key)
 	}
 	// make realm op log entry
 	if ds.opslog != nil {
@@ -746,7 +748,7 @@ func (ds *defaultStore) GetTypeSafe(tid TypeID) Type {
 	// check backend.
 	if ds.baseStore != nil {
 		key := backendTypeKey(tid)
-		bz := ds.baseStore.Get(nil, []byte(key))
+		bz := ds.baseStore.Get(ds.gctx, []byte(key))
 		if bz != nil {
 			gas := overflow.Mulp(ds.gasConfig.GasGetType, store.Gas(len(bz)))
 			ds.consumeGas(gas, GasGetTypeDesc)
@@ -811,7 +813,7 @@ func (ds *defaultStore) SetType(tt Type) {
 		ds.aminoCache.Set(cacheSum[:], tcopy, int64(len(bz)))
 		gas := overflow.Mulp(ds.gasConfig.GasSetType, store.Gas(len(bz)))
 		ds.consumeGas(gas, GasSetTypeDesc)
-		ds.baseStore.Set(nil, []byte(key), bz)
+		ds.baseStore.Set(ds.gctx, []byte(key), bz)
 		size = len(bz)
 	}
 	// save type to cache.
@@ -844,7 +846,7 @@ func (ds *defaultStore) GetBlockNodeSafe(loc Location) BlockNode {
 	// check backend.
 	if ds.baseStore != nil {
 		key := backendNodeKey(loc)
-		bz := ds.baseStore.Get(nil, []byte(key))
+		bz := ds.baseStore.Get(ds.gctx, []byte(key))
 		if bz != nil {
 			var bn BlockNode
 			amino.MustUnmarshal(bz, &bn)
@@ -881,7 +883,7 @@ func (ds *defaultStore) SetBlockNode(bn BlockNode) {
 
 func (ds *defaultStore) NumMemPackages() int64 {
 	ctrkey := []byte(backendPackageIndexCtrKey())
-	ctrbz := ds.baseStore.Get(nil, ctrkey)
+	ctrbz := ds.baseStore.Get(ds.gctx, ctrkey)
 	if ctrbz == nil {
 		return 0
 	} else {
@@ -895,10 +897,10 @@ func (ds *defaultStore) NumMemPackages() int64 {
 
 func (ds *defaultStore) incGetPackageIndexCounter() uint64 {
 	ctrkey := []byte(backendPackageIndexCtrKey())
-	ctrbz := ds.baseStore.Get(nil, ctrkey)
+	ctrbz := ds.baseStore.Get(ds.gctx, ctrkey)
 	if ctrbz == nil {
 		nextbz := strconv.Itoa(1)
-		ds.baseStore.Set(nil, ctrkey, []byte(nextbz))
+		ds.baseStore.Set(ds.gctx, ctrkey, []byte(nextbz))
 		return 1
 	} else {
 		ctr, err := strconv.Atoi(string(ctrbz))
@@ -906,7 +908,7 @@ func (ds *defaultStore) incGetPackageIndexCounter() uint64 {
 			panic(err)
 		}
 		nextbz := strconv.Itoa(ctr + 1)
-		ds.baseStore.Set(nil, ctrkey, []byte(nextbz))
+		ds.baseStore.Set(ds.gctx, ctrkey, []byte(nextbz))
 		return uint64(ctr) + 1
 	}
 }
@@ -940,9 +942,9 @@ func (ds *defaultStore) AddMemPackage(mpkg *std.MemPackage, mptype MemPackageTyp
 	bz := amino.MustMarshal(mpkg)
 	gas := overflow.Mulp(ds.gasConfig.GasAddMemPackage, store.Gas(len(bz)))
 	ds.consumeGas(gas, GasAddMemPackageDesc)
-	ds.baseStore.Set(nil, idxkey, []byte(mpkg.Path))
+	ds.baseStore.Set(ds.gctx, idxkey, []byte(mpkg.Path))
 	pathkey := []byte(backendPackagePathKey(mpkg.Path))
-	ds.iavlStore.Set(nil, pathkey, bz)
+	ds.iavlStore.Set(ds.gctx, pathkey, bz)
 	size = len(bz)
 }
 
@@ -959,7 +961,7 @@ func (ds *defaultStore) getMemPackage(path string, isRetry bool) *std.MemPackage
 		defer func() { bm.StopStore(bm.StoreGetMemPackage, old, size) }()
 	}
 	pathkey := []byte(backendPackagePathKey(path))
-	bz := ds.iavlStore.Get(nil, pathkey)
+	bz := ds.iavlStore.Get(ds.gctx, pathkey)
 	if bz == nil {
 		// If this is the first try, attempt using GetPackage to retrieve the
 		// package, first. GetPackage can leverage pkgGetter, which in most
@@ -1007,7 +1009,7 @@ func (ds *defaultStore) FindPathsByPrefix(prefix string) iter.Seq[string] {
 	}
 
 	return func(yield func(string) bool) {
-		iter := ds.iavlStore.Iterator(nil, startKey, endKey)
+		iter := ds.iavlStore.Iterator(ds.gctx, startKey, endKey)
 		defer iter.Close()
 
 		for ; iter.Valid(); iter.Next() {
@@ -1021,7 +1023,7 @@ func (ds *defaultStore) FindPathsByPrefix(prefix string) iter.Seq[string] {
 
 func (ds *defaultStore) IterMemPackage() <-chan *std.MemPackage {
 	ctrkey := []byte(backendPackageIndexCtrKey())
-	ctrbz := ds.baseStore.Get(nil, ctrkey)
+	ctrbz := ds.baseStore.Get(ds.gctx, ctrkey)
 	if ctrbz == nil {
 		return nil
 	} else {
@@ -1033,7 +1035,7 @@ func (ds *defaultStore) IterMemPackage() <-chan *std.MemPackage {
 		go func() {
 			for i := uint64(1); i <= uint64(ctr); i++ {
 				idxkey := []byte(backendPackageIndexKey(i))
-				path := ds.baseStore.Get(nil, idxkey)
+				path := ds.baseStore.Get(ds.gctx, idxkey)
 				if path == nil {
 					panic(fmt.Sprintf(
 						"missing package index %d", i))
