@@ -147,7 +147,7 @@ type pebbleDBBatch struct {
 
 // Implements Batch.
 func (mBatch *pebbleDBBatch) Set(key, value []byte) error {
-	return mBatch.batch.Set(key, value, pebble.NoSync)
+	return mBatch.batch.Set(internal.NonNilBytes(key), internal.NonNilBytes(value), pebble.NoSync)
 }
 
 // Implements Batch.

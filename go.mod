@@ -74,6 +74,7 @@ require (
 	github.com/cosmos/gogoproto v1.7.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/erigontech/mdbx-go v0.40.0 // indirect
 	github.com/getsentry/sentry-go v0.35.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

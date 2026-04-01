@@ -1,11 +1,12 @@
 package benchstore
 
-// Storage benchmarks for comparing DB backends (PebbleDB vs LMDB).
+// Storage benchmarks for comparing DB backends (PebbleDB vs LMDB vs MDBX).
 //
 // Usage:
 //
 //	go test ./gnovm/cmd/benchstore/ -bench=. -benchmem -timeout=30m -db=pebbledb
 //	go test ./gnovm/cmd/benchstore/ -bench=. -benchmem -timeout=30m -db=lmdb
+//	go test ./gnovm/cmd/benchstore/ -bench=. -benchmem -timeout=30m -db=mdbx
 //
 // PebbleDB options:
 //
@@ -32,11 +33,12 @@ import (
 	"github.com/cockroachdb/pebble"
 	dbm "github.com/gnolang/gno/tm2/pkg/db"
 	"github.com/gnolang/gno/tm2/pkg/db/lmdbdb"
+	"github.com/gnolang/gno/tm2/pkg/db/mdbxdb"
 	"github.com/gnolang/gno/tm2/pkg/db/pebbledb"
 )
 
 var (
-	flagDB          = flag.String("db", "", "Database backend: pebbledb or lmdb (required)")
+	flagDB          = flag.String("db", "", "Database backend: pebbledb, lmdb, or mdbx (required)")
 	flagCacheMB     = flag.Int("cache-mb", 0, "PebbleDB block cache size in MB (0 = use default 500MB)")
 	flagMemtableMB  = flag.Int("memtable-mb", 0, "PebbleDB memtable size in MB (0 = use default 64MB)")
 	flagCompactions = flag.Int("compactions", 0, "PebbleDB max concurrent compactions (0 = use default 3)")
@@ -50,7 +52,7 @@ var keySizes = []int{1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000,
 func requireDB(b *testing.B) {
 	b.Helper()
 	if *flagDB == "" {
-		b.Skip("use -db=pebbledb or -db=lmdb to run")
+		b.Skip("use -db=pebbledb, -db=lmdb, or -db=mdbx to run")
 	}
 }
 
@@ -96,7 +98,7 @@ func newBenchEnv(b *testing.B, n int, valSize int) *benchEnv {
 	printProgress("populate", n, n)
 
 	// Warmup: PebbleDB gets proportional random reads to fill block cache.
-	// LMDB uses OS page cache via mmap — no explicit warmup needed.
+	// LMDB/MDBX use OS page cache via mmap — no explicit warmup needed.
 	if *flagDB == "pebbledb" {
 		cacheMB := 500 // default
 		if *flagCacheMB > 0 {
@@ -134,8 +136,10 @@ func openDB(name, dir string) (dbm.DB, error) {
 	case "lmdb":
 		// MapSize: 1TB default, enough for any benchmark.
 		return lmdbdb.NewLMDBWithOptions(name, dir, lmdbdb.DefaultMapSize, 0)
+	case "mdbx":
+		return mdbxdb.NewMDBXWithOptions(name, dir, mdbxdb.DefaultMapSize, 0)
 	default:
-		return nil, fmt.Errorf("unknown -db=%q; use pebbledb or lmdb", *flagDB)
+		return nil, fmt.Errorf("unknown -db=%q; use pebbledb, lmdb, or mdbx", *flagDB)
 	}
 }
 
@@ -466,7 +470,9 @@ func BenchmarkStoreGetCacheSweep(b *testing.B) {
 // Usage:
 //
 //	go test ./gnovm/cmd/benchstore/ -bench=ValueSizeGet -timeout=2h -db=lmdb
+//	go test ./gnovm/cmd/benchstore/ -bench=ValueSizeGet -timeout=2h -db=mdbx
 //	go test ./gnovm/cmd/benchstore/ -bench=ValueSizeSet -timeout=2h -db=lmdb
+//	go test ./gnovm/cmd/benchstore/ -bench=ValueSizeSet -timeout=2h -db=mdbx
 
 var valueSizeCases = []struct {
 	valSize int

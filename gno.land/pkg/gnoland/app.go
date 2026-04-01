@@ -20,6 +20,7 @@ import (
 	dbm "github.com/gnolang/gno/tm2/pkg/db"
 	_ "github.com/gnolang/gno/tm2/pkg/db/_tags"
 	_ "github.com/gnolang/gno/tm2/pkg/db/lmdbdb"
+	_ "github.com/gnolang/gno/tm2/pkg/db/mdbxdb"
 	_ "github.com/gnolang/gno/tm2/pkg/db/pebbledb"
 	"github.com/gnolang/gno/tm2/pkg/events"
 	"github.com/gnolang/gno/tm2/pkg/log"

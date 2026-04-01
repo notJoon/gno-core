@@ -8,6 +8,7 @@ import (
 
 	dbm "github.com/gnolang/gno/tm2/pkg/db"
 	"github.com/gnolang/gno/tm2/pkg/db/lmdbdb"
+	"github.com/gnolang/gno/tm2/pkg/db/mdbxdb"
 	_ "github.com/gnolang/gno/tm2/pkg/db/pebbledb"
 	"github.com/gnolang/gno/tm2/pkg/store/cache"
 	"github.com/gnolang/gno/tm2/pkg/store/dbadapter"
@@ -25,6 +26,14 @@ func TestCacheBatchWritePebbleDB(t *testing.T) {
 func TestCacheBatchWriteLMDB(t *testing.T) {
 	t.Parallel()
 	db, err := lmdbdb.NewLMDB("test_lmdb", t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	testCacheBatchWrite(t, db)
+}
+
+func TestCacheBatchWriteMDBX(t *testing.T) {
+	t.Parallel()
+	db, err := mdbxdb.NewMDBX("test_mdbx", t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	testCacheBatchWrite(t, db)
@@ -81,6 +90,14 @@ func TestCacheBatchWriteOverwriteLMDB(t *testing.T) {
 	testCacheBatchWriteOverwrite(t, db)
 }
 
+func TestCacheBatchWriteOverwriteMDBX(t *testing.T) {
+	t.Parallel()
+	db, err := mdbxdb.NewMDBX("test_mdbx_ow", t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	testCacheBatchWriteOverwrite(t, db)
+}
+
 func testCacheBatchWriteOverwrite(t *testing.T, db dbm.DB) {
 	t.Helper()
 	parent := dbadapter.Store{DB: db}
@@ -120,6 +137,17 @@ func TestCacheBatchWriteEmptyLMDB(t *testing.T) {
 	cs.Write()
 }
 
+func TestCacheBatchWriteEmptyMDBX(t *testing.T) {
+	t.Parallel()
+	db, err := mdbxdb.NewMDBX("test_mdbx_empty", t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+
+	parent := dbadapter.Store{DB: db}
+	cs := cache.New(parent)
+	cs.Write()
+}
+
 func TestCacheBatchWriteSetThenDeletePebbleDB(t *testing.T) {
 	t.Parallel()
 	db, err := dbm.NewDB("test_pebble_sd", dbm.PebbleDBBackend, t.TempDir())
@@ -131,6 +159,14 @@ func TestCacheBatchWriteSetThenDeletePebbleDB(t *testing.T) {
 func TestCacheBatchWriteSetThenDeleteLMDB(t *testing.T) {
 	t.Parallel()
 	db, err := lmdbdb.NewLMDB("test_lmdb_sd", t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	testCacheBatchWriteSetThenDelete(t, db)
+}
+
+func TestCacheBatchWriteSetThenDeleteMDBX(t *testing.T) {
+	t.Parallel()
+	db, err := mdbxdb.NewMDBX("test_mdbx_sd", t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	testCacheBatchWriteSetThenDelete(t, db)
@@ -152,6 +188,25 @@ func testCacheBatchWriteSetThenDelete(t *testing.T, db dbm.DB) {
 func TestCacheBatchUsesDBBatch(t *testing.T) {
 	t.Parallel()
 	db, err := lmdbdb.NewLMDB("test_batch_path", t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+
+	parent := dbadapter.Store{DB: db}
+	var iface interface{} = parent
+	_, ok := iface.(interface{ GetDB() dbm.DB })
+	require.True(t, ok, "dbadapter.Store should implement GetDB()")
+
+	cs := cache.New(parent)
+	cs.Set([]byte("k"), []byte("v"))
+	cs.Write()
+
+	got := parent.Get([]byte("k"))
+	require.Equal(t, []byte("v"), got)
+}
+
+func TestCacheBatchUsesDBBatchMDBX(t *testing.T) {
+	t.Parallel()
+	db, err := mdbxdb.NewMDBX("test_batch_path_mdbx", t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -236,6 +291,22 @@ func TestCacheFallbackWriteLMDB(t *testing.T) {
 	require.Equal(t, []byte("v1"), v)
 }
 
+func TestCacheFallbackWriteMDBX(t *testing.T) {
+	t.Parallel()
+	db, err := mdbxdb.NewMDBX("test_fb_mdbx", t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+
+	parent := nonBatchStore{db: db}
+	cs := cache.New(parent)
+	cs.Set([]byte("k1"), []byte("v1"))
+	cs.Write()
+
+	v, err := db.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v1"), v)
+}
+
 func TestCacheClearedAfterWritePebbleDB(t *testing.T) {
 	t.Parallel()
 	db, err := dbm.NewDB("test_clear_pebble", dbm.PebbleDBBackend, t.TempDir())
@@ -259,6 +330,24 @@ func TestCacheClearedAfterWritePebbleDB(t *testing.T) {
 func TestCacheClearedAfterWriteLMDB(t *testing.T) {
 	t.Parallel()
 	db, err := lmdbdb.NewLMDB("test_clear_lmdb", t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+
+	parent := dbadapter.Store{DB: db}
+	cs := cache.New(parent)
+	cs.Set([]byte("k"), []byte("v1"))
+	cs.Write()
+
+	cs.Write() // second Write is no-op
+
+	require.NoError(t, db.Set([]byte("k"), []byte("v2")))
+	got := cs.Get([]byte("k"))
+	require.Equal(t, []byte("v2"), got)
+}
+
+func TestCacheClearedAfterWriteMDBX(t *testing.T) {
+	t.Parallel()
+	db, err := mdbxdb.NewMDBX("test_clear_mdbx", t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 
