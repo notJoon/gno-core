@@ -559,7 +559,7 @@ func (opts *TestOptions) runTestFiles(
 				},
 			},
 		))
-		if opts.Verbose {
+		if opts.Verbose && m.GasMeter != nil {
 			fmt.Fprintf(opts.Error, "--- GAS:  %d\n", m.GasMeter.GasConsumed())
 		}
 
