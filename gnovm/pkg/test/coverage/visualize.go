@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 )
 
 // ANSI color codes
@@ -41,20 +40,16 @@ func (t *Tracker) ShowFileCoverage(rootDir, pattern string, w io.Writer) error {
 		return fmt.Errorf("no files matching pattern: %s", pattern)
 	}
 
-	// If multiple files matched, use interactive viewer
-	if len(matchedFiles) > 1 {
-		// Convert to file paths for interactive viewer
-		var filePaths []string
-		for _, fc := range matchedFiles {
-			filePaths = append(filePaths, fmt.Sprintf("%s/%s", fc.Package, fc.FileName))
+	for i, fc := range matchedFiles {
+		if i > 0 {
+			fmt.Fprintln(w)
 		}
-
-		viewer := NewInteractiveViewer(t, rootDir, filePaths, os.Stdin, w)
-		return viewer.Start()
+		if err := t.showSingleFileCoverage(rootDir, fc, w); err != nil {
+			return err
+		}
 	}
 
-	// Single file - show directly
-	return t.showSingleFileCoverage(rootDir, matchedFiles[0], w)
+	return nil
 }
 
 // showSingleFileCoverage displays coverage for a single file
@@ -150,33 +145,4 @@ func findSourceFile(rootDir, pkgPath, fileName string) string {
 	}
 
 	return ""
-}
-
-// GetFilesMatchingPattern returns all files matching the given pattern
-func (t *Tracker) GetFilesMatchingPattern(pattern string) []string {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	var files []string
-	seen := make(map[string]bool)
-
-	for pkg, pkgFiles := range t.executableLines {
-		for fileName := range pkgFiles {
-			fullName := fmt.Sprintf("%s/%s", pkg, fileName)
-			if seen[fullName] {
-				continue
-			}
-
-			if matched, _ := filepath.Match(pattern, fileName); matched {
-				files = append(files, fullName)
-				seen[fullName] = true
-			} else if matched, _ := filepath.Match(pattern, filepath.Base(fileName)); matched {
-				files = append(files, fullName)
-				seen[fullName] = true
-			}
-		}
-	}
-
-	sort.Strings(files)
-	return files
 }
