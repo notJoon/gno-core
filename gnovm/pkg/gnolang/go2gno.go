@@ -183,6 +183,7 @@ func ParseFilePackageName(fname string) (string, error) {
 const (
 	tokenCostFactor   = 1 // To be adjusted from benchmarks.
 	nestingCostFactor = 1 // To be adjusted from benchmarks.
+	commentCostFactor = 0 // Comments are not charged.
 )
 
 func newParserCallback(m *Machine) parser.ParserCallback {
@@ -191,6 +192,7 @@ func newParserCallback(m *Machine) parser.ParserCallback {
 	}
 	return func(tok token.Token, nestLev int) {
 		if tok == token.COMMENT {
+			m.GasMeter.ConsumeGas(types.Gas(commentCostFactor), "parsing")
 			return
 		}
 		m.GasMeter.ConsumeGas(types.Gas(tokenCostFactor+nestLev*nestingCostFactor), "parsing")
