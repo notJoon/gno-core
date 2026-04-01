@@ -19,10 +19,6 @@ import (
 // TestStoreOpsByRealm measures GetObject/SetObject calls per transaction type,
 // broken down by target realm (own realm vs stdlibs vs dependencies).
 //
-// This addresses Jae's request:
-// "i need for each type of msgexec, the number of gets/sets but also to which
-// realm it was get/set to. namely how many were to your own realm, vs stdlibs."
-//
 // Run with:
 //
 //	go test -run TestStoreOpsByRealm -v ./gno.land/pkg/sdk/vm/
