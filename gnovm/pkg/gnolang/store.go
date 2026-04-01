@@ -83,6 +83,10 @@ type Store interface {
 	SetLogStoreOps(dst io.Writer)
 	LogFinalizeRealm(rlmpath string) // to mark finalization of realm boundaries
 	Print()
+
+	// Per-PkgID store operation counters (for benchmarking/analysis).
+	EnableStoreOpCounters() *StoreOpCounters
+	GetStoreOpCounters() *StoreOpCounters
 }
 
 // TransactionStore is a store where the operations modifying the underlying store's
@@ -169,6 +173,10 @@ type defaultStore struct {
 
 	// realm storage changes on message level.
 	realmStorageDiffs map[string]int64 // maps realm path to size diff
+
+	// per-PkgID store operation counters (for benchmarking/analysis).
+	// Nil when not enabled; call EnableStoreOpCounters() to activate.
+	storeOpCounters *StoreOpCounters
 }
 
 var globalAminoCache = sync.OnceValue[*ristretto.Cache[[]byte, Type]](func() *ristretto.Cache[[]byte, Type] {
@@ -240,6 +248,8 @@ func (ds *defaultStore) BeginTransaction(baseStore, iavlStore store.Store, gasMe
 		opslog:  nil,
 		// reset at the message level
 		realmStorageDiffs: make(map[string]int64),
+		// propagate counters from parent store
+		storeOpCounters: ds.storeOpCounters,
 	}
 	InitStoreCaches(ds2)
 
@@ -426,6 +436,15 @@ func (ds *defaultStore) GetObject(oid ObjectID) Object {
 func (ds *defaultStore) GetObjectSafe(oid ObjectID) Object {
 	// check cache.
 	if oo, exists := ds.cacheObjects[oid]; exists {
+		if ds.storeOpCounters != nil {
+			ds.storeOpCounters.recordGetCacheHit(oid)
+			// Auto-register PkgID → path from cached PackageValues.
+			if pv, ok := oo.(*PackageValue); ok {
+				if _, known := ds.storeOpCounters.pkgIDToPath[oid.PkgID]; !known {
+					ds.storeOpCounters.pkgIDToPath[oid.PkgID] = pv.PkgPath
+				}
+			}
+		}
 		return oo
 	}
 	// check baseStore.
@@ -455,6 +474,9 @@ func (ds *defaultStore) loadObjectSafe(oid ObjectID) Object {
 		gas := overflow.Mulp(ds.gasConfig.GasGetObject, store.Gas(len(bz)))
 		ds.consumeGas(gas, GasGetObjectDesc)
 		amino.MustUnmarshal(bz, &oo)
+		if ds.storeOpCounters != nil {
+			ds.storeOpCounters.recordGetBackend(oid, len(bz), oo)
+		}
 		if debug {
 			debug.Printf("loadObjectSafe by oid: %v, type of oo: %v\n", oid, reflect.TypeOf(oo))
 		}
@@ -604,6 +626,10 @@ func (ds *defaultStore) SetObject(oo Object) int64 {
 	bz := amino.MustMarshalAny(o2)
 	gas := overflow.Mulp(ds.gasConfig.GasSetObject, store.Gas(len(bz)))
 	ds.consumeGas(gas, GasSetObjectDesc)
+	if ds.storeOpCounters != nil {
+		ds.storeOpCounters.recordSet(oid, len(bz))
+	}
+
 	// set hash.
 	hash := HashBytes(bz) // XXX objectHash(bz)???
 	if len(hash) != HashSize {
@@ -1126,6 +1152,98 @@ func (ds *defaultStore) Print() {
 		return true
 	})
 	fmt.Println(colors.Red("//----------------------------------------"))
+}
+
+// ----------------------------------------
+// StoreOpCounters tracks per-PkgID GetObject/SetObject counts and bytes.
+// Used for benchmarking to determine which realm each store operation targets.
+
+// PkgOpStats holds operation counts and bytes for a single PkgID.
+type PkgOpStats struct {
+	GetCacheHit int64 // GetObject calls satisfied from cache
+	GetCount    int64 // GetObject calls that hit the backend (cache miss)
+	GetBytes    int64 // total bytes read from backend
+	SetCount    int64 // SetObject calls
+	SetBytes    int64 // total bytes written to backend
+}
+
+// StoreOpCounters aggregates per-PkgID store operation stats.
+type StoreOpCounters struct {
+	stats       map[PkgID]*PkgOpStats
+	pkgIDToPath map[PkgID]string // reverse mapping for display
+}
+
+func NewStoreOpCounters() *StoreOpCounters {
+	return &StoreOpCounters{
+		stats:       make(map[PkgID]*PkgOpStats),
+		pkgIDToPath: make(map[PkgID]string),
+	}
+}
+
+// RegisterPkgPath pre-registers a PkgID → path mapping for display.
+func (c *StoreOpCounters) RegisterPkgPath(path string) {
+	pid := PkgIDFromPkgPath(path)
+	c.pkgIDToPath[pid] = path
+}
+
+func (c *StoreOpCounters) getOrCreate(pid PkgID) *PkgOpStats {
+	s, ok := c.stats[pid]
+	if !ok {
+		s = &PkgOpStats{}
+		c.stats[pid] = s
+	}
+	return s
+}
+
+func (c *StoreOpCounters) recordGetCacheHit(oid ObjectID) {
+	c.getOrCreate(oid.PkgID).GetCacheHit++
+}
+
+func (c *StoreOpCounters) recordGetBackend(oid ObjectID, bytes int, oo Object) {
+	s := c.getOrCreate(oid.PkgID)
+	s.GetCount++
+	s.GetBytes += int64(bytes)
+	// Auto-register PkgID → path when we see a PackageValue.
+	if pv, ok := oo.(*PackageValue); ok {
+		if _, exists := c.pkgIDToPath[oid.PkgID]; !exists {
+			c.pkgIDToPath[oid.PkgID] = pv.PkgPath
+		}
+	}
+}
+
+func (c *StoreOpCounters) recordSet(oid ObjectID, bytes int) {
+	s := c.getOrCreate(oid.PkgID)
+	s.SetCount++
+	s.SetBytes += int64(bytes)
+}
+
+// Reset clears all counters.
+func (c *StoreOpCounters) Reset() {
+	c.stats = make(map[PkgID]*PkgOpStats)
+}
+
+// Stats returns the collected stats. The returned map should not be modified.
+func (c *StoreOpCounters) Stats() map[PkgID]*PkgOpStats {
+	return c.stats
+}
+
+// PathForPkgID returns the registered path for a PkgID, or its hex string if unknown.
+func (c *StoreOpCounters) PathForPkgID(pid PkgID) string {
+	if path, ok := c.pkgIDToPath[pid]; ok {
+		return path
+	}
+	return pid.String()
+}
+
+// EnableStoreOpCounters activates per-PkgID operation counting on this store.
+func (ds *defaultStore) EnableStoreOpCounters() *StoreOpCounters {
+	ds.storeOpCounters = NewStoreOpCounters()
+	return ds.storeOpCounters
+}
+
+// GetStoreOpCounters returns the current counters, or nil if not enabled.
+func (ds *defaultStore) GetStoreOpCounters() *StoreOpCounters {
+	return ds.storeOpCounters
 }
 
 // ----------------------------------------
