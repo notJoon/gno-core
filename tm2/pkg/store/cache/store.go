@@ -38,11 +38,13 @@ func (cv cValue) String() string {
 
 // cacheStore wraps an in-memory cache around an underlying types.Store.
 type cacheStore struct {
-	mtx           sync.Mutex
-	cache         map[string]*cValue
-	unsortedCache map[string]struct{}
-	sortedCache   *list.List // always ascending sorted
-	parent        types.Store
+	mtx            sync.Mutex
+	cache          map[string]*cValue
+	unsortedCache  map[string]struct{}
+	sortedCache    *list.List // always ascending sorted
+	parent         types.Store
+	depthEstimator types.DepthEstimator // nil for flat stores (e.g. dbadapter)
+	chargedGas     map[string]types.Gas // write/delete gas deduplication per key
 }
 
 var _ types.Store = (*cacheStore)(nil)
@@ -53,8 +55,31 @@ func New(parent types.Store) *cacheStore {
 		unsortedCache: make(map[string]struct{}),
 		sortedCache:   list.New(),
 		parent:        parent,
+		chargedGas:    make(map[string]types.Gas),
+	}
+	// Auto-detect DepthEstimator from parent.
+	if de, ok := parent.(types.DepthEstimator); ok {
+		cs.depthEstimator = de
 	}
 	return cs
+}
+
+// SetDepthEstimator sets the depth estimator for IAVL-backed stores.
+func (store *cacheStore) SetDepthEstimator(de types.DepthEstimator) {
+	store.depthEstimator = de
+}
+
+// expectedDepth returns the estimated IAVL tree depth, floored by
+// GasConfig.MinDepth. Returns 1 for non-IAVL stores (no estimator).
+func (store *cacheStore) expectedDepth(gctx *types.GasContext) int64 {
+	depth := int64(1)
+	if store.depthEstimator != nil {
+		depth = store.depthEstimator.ExpectedDepth()
+	}
+	if gctx != nil && gctx.Config.MinDepth > 0 && depth < gctx.Config.MinDepth {
+		depth = gctx.Config.MinDepth
+	}
+	return depth
 }
 
 // Implements types.Store.
@@ -65,9 +90,20 @@ func (store *cacheStore) Get(gctx *types.GasContext, key []byte) (value []byte) 
 
 	cacheValue, ok := store.cache[string(key)]
 	if !ok {
+		// Cache miss — charge depth-based I/O gas, then fetch.
+		if gctx != nil {
+			depth := store.expectedDepth(gctx)
+			if depth > 1 {
+				gctx.ConsumeGas(types.Gas(depth)*gctx.Config.ReadCostFlat, "DepthReadFlat")
+			} else {
+				gctx.WillGet() // flat ReadCostFlat (non-depth store)
+			}
+		}
 		value = store.parent.Get(nil, key)
+		gctx.DidGet(value) // ReadCostPerByte (nil-safe)
 		store.setCacheValue(key, value, false, false)
 	} else {
+		// Cache hit — no gas.
 		value = cacheValue.value
 	}
 
@@ -80,6 +116,28 @@ func (store *cacheStore) Set(gctx *types.GasContext, key []byte, value []byte) {
 	defer store.mtx.Unlock()
 	types.AssertValidKey(key)
 	types.AssertValidValue(value)
+
+	// Write gas deduplication: refund previous charge for this key,
+	// then charge for the new operation. Last operation wins.
+	if gctx != nil {
+		k := string(key)
+		if prev, exists := store.chargedGas[k]; exists && prev > 0 {
+			gctx.RefundGas(prev)
+		}
+		var gas types.Gas
+		depth := store.expectedDepth(gctx)
+		if depth > 1 {
+			// IAVL: depth reads + depth writes (includes leaf) + per-byte
+			depthGas := types.Gas(depth) * (gctx.Config.ReadCostFlat + gctx.Config.WriteCostFlat)
+			depthGas += gctx.Config.WriteCostPerByte * types.Gas(len(value))
+			gctx.ConsumeGas(depthGas, "IavlSet")
+			gas = depthGas
+		} else {
+			// Flat store: WriteCostFlat + WriteCostPerByte
+			gas = gctx.WillSet(value)
+		}
+		store.chargedGas[k] = gas
+	}
 
 	store.setCacheValue(key, value, false, true)
 }
@@ -95,6 +153,25 @@ func (store *cacheStore) Delete(gctx *types.GasContext, key []byte) {
 	store.mtx.Lock()
 	defer store.mtx.Unlock()
 	types.AssertValidKey(key)
+
+	// Write gas deduplication: refund previous charge, charge delete.
+	if gctx != nil {
+		k := string(key)
+		if prev, exists := store.chargedGas[k]; exists && prev > 0 {
+			gctx.RefundGas(prev)
+		}
+		var gas types.Gas
+		depth := store.expectedDepth(gctx)
+		if depth > 1 {
+			// IAVL: depth reads + depth writes to remove and rebalance
+			depthGas := types.Gas(depth) * (gctx.Config.ReadCostFlat + gctx.Config.WriteCostFlat)
+			gctx.ConsumeGas(depthGas, "IavlDelete")
+			gas = depthGas
+		} else {
+			gas = gctx.WillDelete() // DeleteCost
+		}
+		store.chargedGas[k] = gas
+	}
 
 	store.setCacheValue(key, nil, true, true)
 }
@@ -166,6 +243,7 @@ func (store *cacheStore) clear() {
 	store.cache = make(map[string]*cValue)
 	store.unsortedCache = make(map[string]struct{})
 	store.sortedCache = list.New()
+	store.chargedGas = make(map[string]types.Gas)
 }
 
 // ----------------------------------------
@@ -173,7 +251,10 @@ func (store *cacheStore) clear() {
 
 // Implements Store.
 func (store *cacheStore) CacheWrap() types.Store {
-	return New(store)
+	cs := New(store)
+	// Propagate depth estimator to nested cache layers.
+	cs.depthEstimator = store.depthEstimator
+	return cs
 }
 
 // ----------------------------------------

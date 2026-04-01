@@ -3,6 +3,7 @@ package iavl
 import (
 	goerrors "errors"
 	"fmt"
+	"math/bits"
 	"sync"
 
 	ics23 "github.com/cosmos/ics23/go"
@@ -33,10 +34,22 @@ func StoreConstructor(db dbm.DB, opts types.StoreOptions) types.CommitStore {
 // ----------------------------------------
 
 var (
-	_ types.Store       = (*Store)(nil)
-	_ types.CommitStore = (*Store)(nil)
-	_ types.Queryable   = (*Store)(nil)
+	_ types.Store          = (*Store)(nil)
+	_ types.CommitStore    = (*Store)(nil)
+	_ types.Queryable      = (*Store)(nil)
+	_ types.DepthEstimator = (*Store)(nil)
 )
+
+// ExpectedDepth returns floor(log2(size)) + 1 as a deterministic estimate
+// of IAVL tree traversal depth. Size is consensus state — constant within
+// a block.
+func (st *Store) ExpectedDepth() int64 {
+	size := st.tree.Size()
+	if size <= 1 {
+		return 1
+	}
+	return int64(bits.Len64(uint64(size)))
+}
 
 // Store Implements types.Store and CommitStore.
 type Store struct {
