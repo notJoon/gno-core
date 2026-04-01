@@ -98,10 +98,16 @@ func Get(cur realm, key string) string {
 	}
 	env.vmk.CommitGnoTransactionStore(ctx)
 
+	// Additional pkg paths for MsgAddPackage scenarios.
+	const addPkgSimple = "gno.land/r/bench/addpkg_simple"
+	const addPkgAvl = "gno.land/r/bench/addpkg_avl"
+
 	// Known pkg paths to register for display.
 	knownPaths := []string{
 		simplePkg,
 		avlPkg,
+		addPkgSimple,
+		addPkgAvl,
 		"gno.land/p/nt/avl/v0",
 		"chain",
 		"chain/runtime",
@@ -115,6 +121,44 @@ func Get(cur realm, key string) string {
 	}
 
 	scenarios := []scenario{
+		{"MsgAddPackage(simple)", func(ctx sdk.Context) {
+			files := []*std.MemFile{
+				{Name: "gnomod.toml", Body: gnolang.GenGnoModLatest(addPkgSimple)},
+				{Name: "simple.gno", Body: `package addpkg_simple
+
+var counter int
+
+func Inc(cur realm) {
+	counter++
+}
+`},
+			}
+			msg := NewMsgAddPackage(addr, addPkgSimple, files)
+			err := env.vmk.AddPackage(ctx, msg)
+			if err != nil {
+				t.Fatalf("AddPackage(simple): %v", err)
+			}
+		}},
+		{"MsgAddPackage(avl)", func(ctx sdk.Context) {
+			files := []*std.MemFile{
+				{Name: "gnomod.toml", Body: gnolang.GenGnoModLatest(addPkgAvl)},
+				{Name: "withdep.gno", Body: `package addpkg_avl
+
+import "gno.land/p/nt/avl/v0"
+
+var tree avl.Tree
+
+func Set(cur realm, key, val string) {
+	tree.Set(key, val)
+}
+`},
+			}
+			msg := NewMsgAddPackage(addr, addPkgAvl, files)
+			err := env.vmk.AddPackage(ctx, msg)
+			if err != nil {
+				t.Fatalf("AddPackage(avl): %v", err)
+			}
+		}},
 		{"MsgCall(Inc)", func(ctx sdk.Context) {
 			msg := NewMsgCall(addr, nil, simplePkg, "Inc", nil)
 			_, err := env.vmk.Call(ctx, msg)
