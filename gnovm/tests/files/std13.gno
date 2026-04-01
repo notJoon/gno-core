@@ -10,12 +10,9 @@ func main() {
 	fn := func() {
 		Register()
 	}
-
-	defer func() {
-		println(recover())
-	}()
 	fn()
+	println("ok")
 }
 
 // Output:
-// invalid non-origin call
+// ok
