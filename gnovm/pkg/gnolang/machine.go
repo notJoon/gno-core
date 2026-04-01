@@ -2107,6 +2107,21 @@ func (m *Machine) NumFrames() int {
 	return len(m.Frames)
 }
 
+// NumNonClosureFrames returns the number of call frames whose function
+// is not a closure (func literal). Closures are internal implementation
+// details of the enclosing function and should not count as separate
+// "method" calls for origin-call purposes.
+func (m *Machine) NumNonClosureFrames() int {
+	count := 0
+	for i := range m.Frames {
+		fr := &m.Frames[i]
+		if fr.Func != nil && !fr.Func.IsClosure {
+			count++
+		}
+	}
+	return count
+}
+
 // Returns the current frame.
 func (m *Machine) LastFrame() *Frame {
 	return &m.Frames[len(m.Frames)-1]

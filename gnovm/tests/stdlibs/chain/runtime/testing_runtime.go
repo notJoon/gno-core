@@ -40,25 +40,30 @@ func typedString(s gno.StringValue) gno.TypedValue {
 
 func isOriginCall(m *gno.Machine) bool {
 	tname := m.Frames[0].Func.Name
+	// Count only non-closure frames. This allows anonymous
+	// function wrappers (e.g. for testing) to be transparent.
+	nonClosureFrames := m.NumNonClosureFrames()
 	switch tname {
 	case "main": // test is a _filetest
+		// Non-closure frames expected:
 		// 0. main
 		// 1. $RealmFuncName
-		// 2. td.IsOriginCall
-		return len(m.Frames) == 3
+		// 2. runtime.AssertOriginCall
+		return nonClosureFrames == 3
 	case "RunTest": // test is a _test
+		// Non-closure frames expected:
 		// 0. testing.RunTest
 		// 1. tRunner
 		// 2. $TestFuncName
 		// 3. $RealmFuncName
-		// 4. std.IsOriginCall
-		return len(m.Frames) == 5
+		// 4. runtime.AssertOriginCall
+		return nonClosureFrames == 5
 	}
 	// support init() in _filetest
 	// XXX do we need to distinguish from 'runtest'/_test?
 	// XXX pretty hacky even if not.
 	if strings.HasPrefix(string(tname), "init.") {
-		return len(m.Frames) == 3
+		return nonClosureFrames == 3
 	}
 	panic("unable to determine if test is a _test or a _filetest")
 }

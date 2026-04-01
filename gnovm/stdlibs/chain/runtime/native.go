@@ -18,7 +18,11 @@ func isOriginCall(m *gno.Machine) bool {
 	}
 	firstPkg := m.Frames[0].LastPackage
 	isMsgCall := firstPkg != nil && firstPkg.PkgPath == ""
-	return n <= 2 && isMsgCall
+	if !isMsgCall {
+		return false
+	}
+	// count only non-closure frames.
+	return m.NumNonClosureFrames() <= 2
 }
 
 func ChainID(m *gno.Machine) string {
