@@ -98,46 +98,25 @@ type TransactionStore interface {
 
 // Gas consumption descriptors.
 const (
-	GasGetObjectDesc       = "GetObjectPerByte"
-	GasSetObjectDesc       = "SetObjectPerByte"
-	GasGetTypeDesc         = "GetTypePerByte"
-	GasSetTypeDesc         = "SetTypePerByte"
-	GasGetPackageRealmDesc = "GetPackageRealmPerByte"
-	GasSetPackageRealmDesc = "SetPackageRealmPerByte"
-	GasAddMemPackageDesc   = "AddMemPackagePerByte"
-	GasGetMemPackageDesc   = "GetMemPackagePerByte"
-	GasDeleteObjectDesc    = "DeleteObjectFlat"
+	GasAminoDecodeDesc = "AminoDecodePerByte"
+	GasAminoEncodeDesc = "AminoEncodePerByte"
 )
 
 // GasConfig defines gas cost for each operation on KVStores.
 // Per-byte costs cover serialization and are charged at each call site.
 // TODO: flat I/O costs (DB lookup, page fault, fsync) should be charged
-// at commit time, not per-operation, since most operations hit the cache
-// layer rather than the DB. See STORAGE_CHARGING_ISSUES.md P3.
+// GasConfig defines amino compute gas costs for GnoVM stores.
+// Storage I/O gas is handled separately by the cache.Store via GasContext.
 type GasConfig struct {
-	GasGetObject       int64
-	GasSetObject       int64
-	GasGetType         int64
-	GasSetType         int64
-	GasGetPackageRealm int64
-	GasSetPackageRealm int64
-	GasAddMemPackage   int64
-	GasGetMemPackage   int64
-	GasDeleteObject    int64
+	GasAminoEncode int64 // per byte cost for amino marshal
+	GasAminoDecode int64 // per byte cost for amino unmarshal
 }
 
-// DefaultGasConfig returns a default gas config for KVStores.
+// DefaultGasConfig returns a default gas config.
 func DefaultGasConfig() GasConfig {
 	return GasConfig{
-		GasGetObject:       16,   // per byte cost
-		GasSetObject:       16,   // per byte cost
-		GasGetType:         5,    // per byte cost
-		GasSetType:         52,   // per byte cost
-		GasGetPackageRealm: 524,  // per byte cost
-		GasSetPackageRealm: 524,  // per byte cost
-		GasAddMemPackage:   8,    // per byte cost
-		GasGetMemPackage:   8,    // per byte cost
-		GasDeleteObject:    3715, // flat cost
+		GasAminoEncode: amino.GasEncodePerByte,
+		GasAminoDecode: amino.GasDecodePerByte,
 	}
 }
 
@@ -387,8 +366,8 @@ func (ds *defaultStore) GetPackageRealm(pkgPath string) (rlm *Realm) {
 	if bz == nil {
 		return nil
 	}
-	gas := overflow.Mulp(ds.gasConfig.GasGetPackageRealm, store.Gas(len(bz)))
-	ds.consumeGas(gas, GasGetPackageRealmDesc)
+	gas := overflow.Mulp(ds.gasConfig.GasAminoDecode, store.Gas(len(bz)))
+	ds.consumeGas(gas, GasAminoDecodeDesc)
 	amino.MustUnmarshal(bz, &rlm)
 	size = len(bz)
 	if debug {
@@ -410,8 +389,8 @@ func (ds *defaultStore) SetPackageRealm(rlm *Realm) {
 	oid := ObjectIDFromPkgPath(rlm.Path)
 	key := backendRealmKey(oid)
 	bz := amino.MustMarshal(rlm)
-	gas := overflow.Mulp(ds.gasConfig.GasSetPackageRealm, store.Gas(len(bz)))
-	ds.consumeGas(gas, GasSetPackageRealmDesc)
+	gas := overflow.Mulp(ds.gasConfig.GasAminoEncode, store.Gas(len(bz)))
+	ds.consumeGas(gas, GasAminoEncodeDesc)
 	ds.baseStore.Set(ds.gctx, []byte(key), bz)
 	size = len(bz)
 }
@@ -458,8 +437,8 @@ func (ds *defaultStore) loadObjectSafe(oid ObjectID) Object {
 		hash := hashbz[:HashSize]
 		bz := hashbz[HashSize:]
 		var oo Object
-		gas := overflow.Mulp(ds.gasConfig.GasGetObject, store.Gas(len(bz)))
-		ds.consumeGas(gas, GasGetObjectDesc)
+		gas := overflow.Mulp(ds.gasConfig.GasAminoDecode, store.Gas(len(bz)))
+		ds.consumeGas(gas, GasAminoDecodeDesc)
 		amino.MustUnmarshal(bz, &oo)
 		if debug {
 			debug.Printf("loadObjectSafe by oid: %v, type of oo: %v\n", oid, reflect.TypeOf(oo))
@@ -608,8 +587,8 @@ func (ds *defaultStore) SetObject(oo Object) int64 {
 	o2 := copyValueWithRefs(oo)
 	// marshal to binary.
 	bz := amino.MustMarshalAny(o2)
-	gas := overflow.Mulp(ds.gasConfig.GasSetObject, store.Gas(len(bz)))
-	ds.consumeGas(gas, GasSetObjectDesc)
+	gas := overflow.Mulp(ds.gasConfig.GasAminoEncode, store.Gas(len(bz)))
+	ds.consumeGas(gas, GasAminoEncodeDesc)
 	// set hash.
 	hash := HashBytes(bz) // XXX objectHash(bz)???
 	if len(hash) != HashSize {
@@ -706,7 +685,8 @@ func (ds *defaultStore) DelObject(oo Object) int64 {
 		old := bm.StartStore(bm.StoreDeleteObject)
 		defer func() { bm.StopStore(bm.StoreDeleteObject, old, 0) }()
 	}
-	ds.consumeGas(ds.gasConfig.GasDeleteObject, GasDeleteObjectDesc)
+	// Storage I/O gas for delete is charged by cache.Store via GasContext.
+	// No amino compute gas — delete doesn't marshal/unmarshal.
 	oid := oo.GetObjectID()
 	size := oo.GetObjectInfo().LastObjectSize
 	// delete from cache.
@@ -750,8 +730,8 @@ func (ds *defaultStore) GetTypeSafe(tid TypeID) Type {
 		key := backendTypeKey(tid)
 		bz := ds.baseStore.Get(ds.gctx, []byte(key))
 		if bz != nil {
-			gas := overflow.Mulp(ds.gasConfig.GasGetType, store.Gas(len(bz)))
-			ds.consumeGas(gas, GasGetTypeDesc)
+			gas := overflow.Mulp(ds.gasConfig.GasAminoDecode, store.Gas(len(bz)))
+			ds.consumeGas(gas, GasAminoDecodeDesc)
 			cacheSum := sha256.Sum256(bz)
 			var tt Type
 			if val, ok := ds.aminoCache.Get(cacheSum[:]); ok {
@@ -811,8 +791,8 @@ func (ds *defaultStore) SetType(tt Type) {
 		bz := amino.MustMarshalAny(tcopy)
 		cacheSum := sha256.Sum256(bz)
 		ds.aminoCache.Set(cacheSum[:], tcopy, int64(len(bz)))
-		gas := overflow.Mulp(ds.gasConfig.GasSetType, store.Gas(len(bz)))
-		ds.consumeGas(gas, GasSetTypeDesc)
+		gas := overflow.Mulp(ds.gasConfig.GasAminoEncode, store.Gas(len(bz)))
+		ds.consumeGas(gas, GasAminoEncodeDesc)
 		ds.baseStore.Set(ds.gctx, []byte(key), bz)
 		size = len(bz)
 	}
@@ -940,8 +920,8 @@ func (ds *defaultStore) AddMemPackage(mpkg *std.MemPackage, mptype MemPackageTyp
 	ctr := ds.incGetPackageIndexCounter()
 	idxkey := []byte(backendPackageIndexKey(ctr))
 	bz := amino.MustMarshal(mpkg)
-	gas := overflow.Mulp(ds.gasConfig.GasAddMemPackage, store.Gas(len(bz)))
-	ds.consumeGas(gas, GasAddMemPackageDesc)
+	gas := overflow.Mulp(ds.gasConfig.GasAminoEncode, store.Gas(len(bz)))
+	ds.consumeGas(gas, GasAminoEncodeDesc)
 	ds.baseStore.Set(ds.gctx, idxkey, []byte(mpkg.Path))
 	pathkey := []byte(backendPackagePathKey(mpkg.Path))
 	ds.iavlStore.Set(ds.gctx, pathkey, bz)
@@ -975,8 +955,8 @@ func (ds *defaultStore) getMemPackage(path string, isRetry bool) *std.MemPackage
 		}
 		return nil
 	}
-	gas := overflow.Mulp(ds.gasConfig.GasGetMemPackage, store.Gas(len(bz)))
-	ds.consumeGas(gas, GasGetMemPackageDesc)
+	gas := overflow.Mulp(ds.gasConfig.GasAminoDecode, store.Gas(len(bz)))
+	ds.consumeGas(gas, GasAminoDecodeDesc)
 
 	var mpkg *std.MemPackage
 	amino.MustUnmarshal(bz, &mpkg)
