@@ -350,6 +350,9 @@ func (cfg InitChainerConfig) loadStdlibs(ctx sdk.Context) {
 	cfg.vmk.CommitGnoTransactionStore(stdlibCtx)
 
 	msCache.MultiWrite()
+
+	// Populate stdlib byte cache for gas-free stdlib reads.
+	cfg.vmk.PopulateStdlibCache()
 }
 
 func (cfg InitChainerConfig) loadAppState(ctx sdk.Context, appState any) ([]abci.ResponseDeliverTx, error) {

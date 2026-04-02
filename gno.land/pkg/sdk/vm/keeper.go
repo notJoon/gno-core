@@ -59,6 +59,7 @@ type VMKeeperI interface {
 	LoadStdlibCached(ctx sdk.Context, stdlibDir string)
 	MakeGnoTransactionStore(ctx sdk.Context) sdk.Context
 	CommitGnoTransactionStore(ctx sdk.Context)
+	PopulateStdlibCache()
 	InitGenesis(ctx sdk.Context, data GenesisState)
 }
 
@@ -153,9 +154,17 @@ func (vm *VMKeeper) Initialize(
 			}
 		}
 
+		// Populate stdlib byte cache for gas-free stdlib reads.
+		vm.gnoStore.PopulateStdlibCache(stdlibs.InitOrder())
+
 		logger.Debug("GnoVM packages preprocessed",
 			"elapsed", time.Since(start))
 	}
+}
+
+// PopulateStdlibCache populates the stdlib byte cache on the gno store.
+func (vm *VMKeeper) PopulateStdlibCache() {
+	vm.gnoStore.PopulateStdlibCache(stdlibs.InitOrder())
 }
 
 type stdlibCache struct {

@@ -82,6 +82,7 @@ type Store interface {
 	GarbageCollectObjectCache(gcCycle int64)
 	SetNativeResolver(NativeResolver)                     // for native functions
 	GetNative(pkgPath string, name Name) func(m *Machine) // for native functions
+	PopulateStdlibCache(paths []string)            // populate stdlib byte cache at node start
 	SetLogStoreOps(dst io.Writer)
 	LogFinalizeRealm(rlmpath string) // to mark finalization of realm boundaries
 	Print()
@@ -211,6 +212,12 @@ type defaultStore struct {
 	baseStore store.Store // for objects, types, nodes
 	iavlStore store.Store // for escaped object hashes
 
+	// Shared stdlib byte cache. Populated at node start, inherited
+	// across transactions. Maps backend object key to raw bytes
+	// (hash || amino). Each tx unmarshals its own copy — no aliasing.
+	// Stdlib objects are immutable after genesis, so bytes never change.
+	stdlibKeyBytes map[string][]byte
+
 	// transaction-scoped
 	// cacheNodes is an actual store - BlockNodes are not stored in the underlying
 	// DB and must be re-initialized using PreprocessAllFilesAndSaveBlockNodes.
@@ -264,6 +271,9 @@ func NewStore(alloc *Allocator, baseStore, iavlStore store.Store) *defaultStore 
 		cacheTypes:   make(map[TypeID]Type),
 		cacheNodes:   txlog.GoMap[Location, BlockNode](map[Location]BlockNode{}),
 
+		// stdlib byte cache
+		stdlibKeyBytes: make(map[string][]byte),
+
 		// reset at the message level
 		realmStorageDiffs: make(map[string]int64),
 
@@ -295,6 +305,9 @@ func (ds *defaultStore) BeginTransaction(baseStore, iavlStore store.Store, gctx 
 		cacheTypes:   make(map[TypeID]Type),
 		cacheNodes:   txlog.Wrap(ds.cacheNodes),
 		alloc:        ds.alloc.Fork().Reset(),
+
+		// stdlib byte cache (shared reference)
+		stdlibKeyBytes: ds.stdlibKeyBytes,
 
 		// store configuration
 		pkgGetter:      ds.pkgGetter,
@@ -525,7 +538,13 @@ func (ds *defaultStore) loadObjectSafe(oid ObjectID) Object {
 		defer func() { bm.StopStore(bm.StoreGetObject, old, size) }()
 	}
 	key := backendObjectKey(oid)
-	hashbz := ds.baseStore.Get(ds.gctx, []byte(key))
+	var hashbz []byte
+	if oid.PkgID.IsStdlibPkg() {
+		hashbz = ds.stdlibKeyBytes[key] // from byte cache — no I/O gas
+	}
+	if hashbz == nil {
+		hashbz = ds.baseStore.Get(ds.gctx, []byte(key)) // from store — charges I/O gas
+	}
 	if hashbz != nil {
 		size = len(hashbz)
 		hash := hashbz[:HashSize]
@@ -1158,6 +1177,31 @@ func (ds *defaultStore) consumeGas(gas int64, descriptor string) {
 	// In the tests, the defaultStore may not set the gas meter.
 	if ds.gasMeter != nil {
 		ds.gasMeter.ConsumeGas(gas, descriptor)
+	}
+}
+
+// PopulateStdlibCache scans the baseStore for all stdlib object keys
+// and caches their raw bytes. Called once at node start (from
+// VMKeeper.Initialize on restart, and after loadStdlibs at genesis).
+// Each stdlib package's objects are found via a prefix iterator on
+// "oid:<pkgid_hex>:".
+func (ds *defaultStore) PopulateStdlibCache(paths []string) {
+	for _, path := range paths {
+		pid := PkgIDFromPkgPath(path)
+		prefix := "oid:" + pid.String() + ":"
+		start := []byte(prefix)
+		// End key: increment last byte of prefix for exclusive upper bound.
+		endPrefix := prefix[:len(prefix)-1] + string(rune(prefix[len(prefix)-1]+1))
+		end := []byte(endPrefix)
+		iter := ds.baseStore.Iterator(nil, start, end)
+		for ; iter.Valid(); iter.Next() {
+			key := string(iter.Key())
+			val := iter.Value()
+			bz := make([]byte, len(val))
+			copy(bz, val)
+			ds.stdlibKeyBytes[key] = bz
+		}
+		iter.Close()
 	}
 }
 
