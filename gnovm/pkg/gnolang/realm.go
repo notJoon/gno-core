@@ -11,7 +11,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
 	"sync"
 
@@ -232,26 +231,6 @@ func (rlm *Realm) DidUpdate(po, xo, co Object) {
 	if po.GetObjectID().PkgID != rlm.ID {
 		panic(&Exception{Value: typedString("cannot modify external-realm or non-realm object")})
 	}
-	// DEBUG: trace co objects from different packages
-	if co != nil && !co.GetObjectID().IsZero() && co.GetObjectID().PkgID != rlm.ID {
-		f, _ := os.OpenFile("/tmp/gno_didup_trace.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if f != nil {
-			fmt.Fprintf(f, "DidUpdate co BEFORE: realm=%s co_type=%T co_id=%v co_refcount=%d co_isReal=%v co_isDirty=%v co_isNewReal=%v\n",
-				rlm.Path, co, co.GetObjectID(), co.GetRefCount(), co.GetIsReal(), co.GetIsDirty(), co.GetIsNewReal())
-		}
-		defer func() {
-			f2, _ := os.OpenFile("/tmp/gno_didup_trace.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if f2 != nil {
-				fmt.Fprintf(f2, "DidUpdate co AFTER:  realm=%s co_type=%T co_id=%v co_refcount=%d co_isReal=%v co_isDirty=%v co_isNewReal=%v\n",
-					rlm.Path, co, co.GetObjectID(), co.GetRefCount(), co.GetIsReal(), co.GetIsDirty(), co.GetIsNewReal())
-				f2.Close()
-			}
-		}()
-		if f != nil {
-			f.Close()
-		}
-	}
-
 	// XXX check if this boosts performance
 	// XXX with broad integration benchmarking.
 	// XXX if co == xo {

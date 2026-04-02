@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"io"
 	"iter"
-	"os"
 	"reflect"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -104,90 +102,6 @@ const (
 	GasAminoDecodeDesc = "AminoDecodePerByte"
 	GasAminoEncodeDesc = "AminoEncodePerByte"
 )
-
-// DEBUG: gas tracking per package. Remove after investigation.
-type DebugGasEntry struct {
-	ReadGas  int64
-	WriteGas int64
-	ReadN    int64
-	WriteN   int64
-}
-
-var (
-	DebugGasByPkg   = make(map[string]*DebugGasEntry) // pkg path → gas
-	DebugGasByOp    = make(map[string]*DebugGasEntry) // op name → gas
-	DebugPkgIDMap   = make(map[string]string)         // PkgID.String() → pkgPath
-	DebugGasMu      sync.Mutex
-)
-
-func DebugRegisterPkgID(pkgPath string) {
-	DebugGasMu.Lock()
-	defer DebugGasMu.Unlock()
-	pid := PkgIDFromPkgPath(pkgPath)
-	DebugPkgIDMap[pid.String()] = pkgPath
-}
-
-func debugResolvePkgID(id string) string {
-	if path, ok := DebugPkgIDMap[id]; ok {
-		return path
-	}
-	return id
-}
-
-func debugGasTrack(pkg, op string, gas int64, isWrite bool) {
-	DebugGasMu.Lock()
-	defer DebugGasMu.Unlock()
-	// by pkg
-	e := DebugGasByPkg[pkg]
-	if e == nil { e = &DebugGasEntry{}; DebugGasByPkg[pkg] = e }
-	if isWrite { e.WriteGas += gas; e.WriteN++ } else { e.ReadGas += gas; e.ReadN++ }
-	// by op
-	e2 := DebugGasByOp[op]
-	if e2 == nil { e2 = &DebugGasEntry{}; DebugGasByOp[op] = e2 }
-	if isWrite { e2.WriteGas += gas; e2.WriteN++ } else { e2.ReadGas += gas; e2.ReadN++ }
-}
-
-func DebugGasPrint() {
-	DebugGasMu.Lock()
-	defer DebugGasMu.Unlock()
-	f, _ := os.OpenFile("/tmp/gno_gas_debug.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if f == nil { return }
-	defer f.Close()
-	fmt.Fprintf(f, "\n=== GAS BY OPERATION ===\n")
-	fmt.Fprintf(f, "%-25s %8s %12s %8s %12s %12s\n", "OP", "READS", "READ_GAS", "WRITES", "WRITE_GAS", "TOTAL")
-	fmt.Fprintf(f, "%s\n", strings.Repeat("-", 79))
-	type kv struct{ k string; e *DebugGasEntry }
-	var ops []kv
-	for k, e := range DebugGasByOp { ops = append(ops, kv{k, e}) }
-	sort.Slice(ops, func(i, j int) bool { return ops[i].e.ReadGas+ops[i].e.WriteGas > ops[j].e.ReadGas+ops[j].e.WriteGas })
-	for _, o := range ops {
-		fmt.Fprintf(f, "%-25s %8d %12d %8d %12d %12d\n", o.k, o.e.ReadN, o.e.ReadGas, o.e.WriteN, o.e.WriteGas, o.e.ReadGas+o.e.WriteGas)
-	}
-
-	fmt.Fprintf(f, "\n=== GAS BY PACKAGE ===\n")
-	fmt.Fprintf(f, "%-55s %8s %12s %8s %12s %12s\n", "PACKAGE", "READS", "READ_GAS", "WRITES", "WRITE_GAS", "TOTAL")
-	fmt.Fprintf(f, "%s\n", strings.Repeat("-", 109))
-	var pkgs []kv
-	for k, e := range DebugGasByPkg { pkgs = append(pkgs, kv{debugResolvePkgID(k), e}) }
-	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].e.ReadGas+pkgs[i].e.WriteGas > pkgs[j].e.ReadGas+pkgs[j].e.WriteGas })
-	for _, p := range pkgs {
-		fmt.Fprintf(f, "%-55s %8d %12d %8d %12d %12d\n", p.k, p.e.ReadN, p.e.ReadGas, p.e.WriteN, p.e.WriteGas, p.e.ReadGas+p.e.WriteGas)
-	}
-	fmt.Fprintf(f, "========================\n")
-}
-
-func DebugGasReset() {
-	DebugGasMu.Lock()
-	defer DebugGasMu.Unlock()
-	DebugGasByPkg = make(map[string]*DebugGasEntry)
-	DebugGasByOp = make(map[string]*DebugGasEntry)
-}
-
-// debugMeterDelta returns gas consumed around a function call.
-func (ds *defaultStore) debugMeterGas() int64 {
-	if ds.gasMeter == nil { return 0 }
-	return ds.gasMeter.GasConsumed()
-}
 
 // GasConfig defines gas cost for each operation on KVStores.
 // Per-byte costs cover serialization and are charged at each call site.
@@ -389,7 +303,6 @@ func (ds *defaultStore) SetStagingPackage(pv *PackageValue) {
 
 // Gets package from cache, or loads it from baseStore, or gets it from package getter.
 func (ds *defaultStore) GetPackage(pkgPath string, isImport bool) *PackageValue {
-	DebugRegisterPkgID(pkgPath)
 	defer func() {
 		ds.stagingPackage = nil
 	}()
@@ -455,8 +368,6 @@ func (ds *defaultStore) SetCachePackage(pv *PackageValue) {
 
 // Some atomic operation.
 func (ds *defaultStore) GetPackageRealm(pkgPath string) (rlm *Realm) {
-	gasBefore := ds.debugMeterGas()
-	defer func() { debugGasTrack(pkgPath, "GetRealm", ds.debugMeterGas()-gasBefore, false) }()
 	var size int
 	if bm.Enabled {
 		old := bm.StartStore(bm.StoreGetPackageRealm)
@@ -483,8 +394,6 @@ func (ds *defaultStore) GetPackageRealm(pkgPath string) (rlm *Realm) {
 
 // An atomic operation to set the package realm info (id counter etc).
 func (ds *defaultStore) SetPackageRealm(rlm *Realm) {
-	gasBefore := ds.debugMeterGas()
-	defer func() { debugGasTrack(rlm.Path, "SetRealm", ds.debugMeterGas()-gasBefore, true) }()
 	var size int
 	if bm.Enabled {
 		old := bm.StartStore(bm.StoreSetPackageRealm)
@@ -515,7 +424,6 @@ func (ds *defaultStore) GetObject(oid ObjectID) Object {
 func (ds *defaultStore) GetObjectSafe(oid ObjectID) Object {
 	// check cache.
 	if oo, exists := ds.cacheObjects[oid]; exists {
-		debugGasTrack(oid.PkgID.String(), "GetObject(cached)", 0, false)
 		return oo
 	}
 	// check baseStore.
@@ -530,8 +438,6 @@ func (ds *defaultStore) GetObjectSafe(oid ObjectID) Object {
 // loads and caches an object.
 // CONTRACT: object isn't already in the cache.
 func (ds *defaultStore) loadObjectSafe(oid ObjectID) Object {
-	gasBefore := ds.debugMeterGas()
-	defer func() { debugGasTrack(oid.PkgID.String(), "GetObject", ds.debugMeterGas()-gasBefore, false) }()
 	var size int
 	if bm.Enabled {
 		old := bm.StartStore(bm.StoreGetObject)
@@ -690,20 +596,6 @@ func AllocExpanded(alloc *Allocator, val Value) {
 // NOTE: unlike GetObject(), SetObject() is also used to persist updated
 // package values.
 func (ds *defaultStore) SetObject(oo Object) int64 {
-	gasBefore := ds.debugMeterGas()
-	defer func() {
-		label := fmt.Sprintf("SetObject(%s)", reflect.TypeOf(oo).Elem().Name())
-		debugGasTrack(oo.GetObjectID().PkgID.String(), label, ds.debugMeterGas()-gasBefore, true)
-	}()
-	// DEBUG: trace all SetObject writes
-	{
-		f, _ := os.OpenFile("/tmp/gno_setobj_trace.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if f != nil {
-			fmt.Fprintf(f, "SetObject: %s id=%v isNewReal=%v isDirty=%v refCount=%d\n",
-				reflect.TypeOf(oo).Elem().Name(), oo.GetObjectID(), oo.GetIsNewReal(), oo.GetIsDirty(), oo.GetRefCount())
-			f.Close()
-		}
-	}
 	var size int
 	if bm.Enabled {
 		old := bm.StartStore(bm.StoreSetObject)
@@ -808,8 +700,6 @@ func (ds *defaultStore) loadForLog(oid ObjectID) Object {
 }
 
 func (ds *defaultStore) DelObject(oo Object) int64 {
-	gasBefore := ds.debugMeterGas()
-	defer func() { debugGasTrack(oo.GetObjectID().PkgID.String(), "DelObject", ds.debugMeterGas()-gasBefore, true) }()
 	if bm.Enabled {
 		old := bm.StartStore(bm.StoreDeleteObject)
 		defer func() { bm.StopStore(bm.StoreDeleteObject, old, 0) }()
@@ -849,15 +739,6 @@ func (ds *defaultStore) GetType(tid TypeID) Type {
 }
 
 func (ds *defaultStore) GetTypeSafe(tid TypeID) Type {
-	gasBefore := ds.debugMeterGas()
-	defer func() {
-		gas := ds.debugMeterGas() - gasBefore
-		if gas > 0 {
-			debugGasTrack(string(tid), "GetType", gas, false)
-		} else {
-			debugGasTrack(string(tid), "GetType(cached)", 0, false)
-		}
-	}()
 	// check cache.
 	if tt, exists := ds.cacheTypes[tid]; exists {
 		return tt
@@ -908,8 +789,6 @@ func (ds *defaultStore) SetCacheType(tt Type) {
 }
 
 func (ds *defaultStore) SetType(tt Type) {
-	gasBefore := ds.debugMeterGas()
-	defer func() { debugGasTrack(string(tt.TypeID()), "SetType", ds.debugMeterGas()-gasBefore, true) }()
 	var size int
 	if bm.Enabled {
 		old := bm.StartStore(bm.StoreSetType)
@@ -1040,8 +919,6 @@ func (ds *defaultStore) incGetPackageIndexCounter() uint64 {
 // MPFiletests are not allowed, as they are currently only read from disk (e.g.
 // test/files). However, MP*All may include filetests files.
 func (ds *defaultStore) AddMemPackage(mpkg *std.MemPackage, mptype MemPackageType) {
-	gasBefore := ds.debugMeterGas()
-	defer func() { debugGasTrack(mpkg.Path, "AddMemPkg", ds.debugMeterGas()-gasBefore, true) }()
 	var size int
 	if bm.Enabled {
 		old := bm.StartStore(bm.StoreAddMemPackage)
@@ -1077,8 +954,6 @@ func (ds *defaultStore) GetMemPackage(path string) *std.MemPackage {
 }
 
 func (ds *defaultStore) getMemPackage(path string, isRetry bool) *std.MemPackage {
-	gasBefore := ds.debugMeterGas()
-	defer func() { debugGasTrack(path, "GetMemPkg", ds.debugMeterGas()-gasBefore, false) }()
 	var size int
 	if bm.Enabled {
 		old := bm.StartStore(bm.StoreGetMemPackage)
