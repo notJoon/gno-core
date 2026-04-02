@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"container/list"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/gnolang/gno/tm2/pkg/colors"
@@ -83,6 +85,118 @@ func (store *cacheStore) expectedDepth(gctx *types.GasContext) int64 {
 }
 
 // Implements types.Store.
+// DEBUG: gas tracking by operation. Remove after investigation.
+var (
+	DebugMu       sync.Mutex
+	DebugReadGas  map[string]int64 // key prefix → total read gas
+	DebugWriteGas map[string]int64 // key prefix → total write gas
+	DebugReadN    map[string]int64 // key prefix → read count
+	DebugWriteN   map[string]int64 // key prefix → write count
+	DebugInited   bool
+)
+
+func debugInitOnce() {
+	if !DebugInited {
+		DebugReadGas = make(map[string]int64)
+		DebugWriteGas = make(map[string]int64)
+		DebugReadN = make(map[string]int64)
+		DebugWriteN = make(map[string]int64)
+		DebugInited = true
+	}
+}
+
+func DebugReset() {
+	DebugMu.Lock()
+	defer DebugMu.Unlock()
+	DebugInited = false
+}
+
+func debugKeyPrefix(key []byte) string {
+	k := string(key)
+	// Keys look like "oid:<pkghash>:<num>" or "tid:<typeid>" or "pkg:<path>"
+	// Extract the meaningful prefix
+	if strings.HasPrefix(k, "oid:") && len(k) > 44 {
+		return "oid:" + k[4:44] // oid:<40-char-hash>
+	}
+	if strings.HasPrefix(k, "tid:") {
+		return "tid"
+	}
+	if strings.HasPrefix(k, "pkg:") {
+		return "pkg:" + k[4:]
+	}
+	if strings.HasPrefix(k, "pkgidx:") {
+		return "pkgidx"
+	}
+	if len(k) > 40 {
+		return k[:40] // iavl escaped hash keys
+	}
+	return k
+}
+
+func debugRecordRead(key []byte, gas int64) {
+	DebugMu.Lock()
+	defer DebugMu.Unlock()
+	debugInitOnce()
+	p := debugKeyPrefix(key)
+	DebugReadGas[p] += gas
+	DebugReadN[p]++
+}
+
+func debugRecordWrite(key []byte, gas int64) {
+	DebugMu.Lock()
+	defer DebugMu.Unlock()
+	debugInitOnce()
+	p := debugKeyPrefix(key)
+	DebugWriteGas[p] += gas
+	DebugWriteN[p]++
+}
+
+func DebugPrintGasBreakdown() {
+	DebugMu.Lock()
+	defer DebugMu.Unlock()
+	fmt.Fprintf(os.Stderr, "\n=== GAS BREAKDOWN ===\n")
+
+	type entry struct {
+		prefix   string
+		readGas  int64
+		writeGas int64
+		readN    int64
+		writeN   int64
+		total    int64
+	}
+	merged := make(map[string]*entry)
+	for p, g := range DebugReadGas {
+		if merged[p] == nil { merged[p] = &entry{prefix: p} }
+		merged[p].readGas = g
+		merged[p].readN = DebugReadN[p]
+	}
+	for p, g := range DebugWriteGas {
+		if merged[p] == nil { merged[p] = &entry{prefix: p} }
+		merged[p].writeGas = g
+		merged[p].writeN = DebugWriteN[p]
+	}
+	var sorted []*entry
+	var totalRead, totalWrite int64
+	for _, e := range merged {
+		e.total = e.readGas + e.writeGas
+		totalRead += e.readGas
+		totalWrite += e.writeGas
+		sorted = append(sorted, e)
+	}
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].total > sorted[j].total })
+
+	fmt.Fprintf(os.Stderr, "Total read gas: %d, write gas: %d, combined: %d\n\n",
+		totalRead, totalWrite, totalRead+totalWrite)
+	fmt.Fprintf(os.Stderr, "%-50s %8s %12s %8s %12s %12s\n",
+		"PREFIX", "READS", "READ_GAS", "WRITES", "WRITE_GAS", "TOTAL_GAS")
+	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("-", 104))
+	for _, e := range sorted {
+		fmt.Fprintf(os.Stderr, "%-50s %8d %12d %8d %12d %12d\n",
+			e.prefix, e.readN, e.readGas, e.writeN, e.writeGas, e.total)
+	}
+	fmt.Fprintf(os.Stderr, "========================\n")
+}
+
 func (store *cacheStore) Get(gctx *types.GasContext, key []byte) (value []byte) {
 	store.mtx.Lock()
 	defer store.mtx.Unlock()
@@ -91,16 +205,22 @@ func (store *cacheStore) Get(gctx *types.GasContext, key []byte) (value []byte) 
 	cacheValue, ok := store.cache[string(key)]
 	if !ok {
 		// Cache miss — charge depth-based I/O gas, then fetch.
+		var gasCharged int64
 		if gctx != nil {
+			gasBefore := gctx.Meter.GasConsumed()
 			depth := store.expectedDepth(gctx)
 			if depth > 1 {
 				gctx.ConsumeGas(types.Gas(depth)*gctx.Config.ReadCostFlat, "DepthReadFlat")
 			} else {
 				gctx.WillGet() // flat ReadCostFlat (non-depth store)
 			}
+			value = store.parent.Get(nil, key)
+			gctx.DidGet(value) // ReadCostPerByte (nil-safe)
+			gasCharged = gctx.Meter.GasConsumed() - gasBefore
+			debugRecordRead(key, gasCharged)
+		} else {
+			value = store.parent.Get(nil, key)
 		}
-		value = store.parent.Get(nil, key)
-		gctx.DidGet(value) // ReadCostPerByte (nil-safe)
 		store.setCacheValue(key, value, false, false)
 	} else {
 		// Cache hit — no gas.
@@ -120,6 +240,7 @@ func (store *cacheStore) Set(gctx *types.GasContext, key []byte, value []byte) {
 	// Write gas deduplication: refund previous charge for this key,
 	// then charge for the new operation. Last operation wins.
 	if gctx != nil {
+		gasBefore := gctx.Meter.GasConsumed()
 		k := string(key)
 		if prev, exists := store.chargedGas[k]; exists && prev > 0 {
 			gctx.RefundGas(prev)
@@ -127,16 +248,16 @@ func (store *cacheStore) Set(gctx *types.GasContext, key []byte, value []byte) {
 		var gas types.Gas
 		depth := store.expectedDepth(gctx)
 		if depth > 1 {
-			// IAVL: depth reads + depth writes (includes leaf) + per-byte
 			depthGas := types.Gas(depth) * (gctx.Config.ReadCostFlat + gctx.Config.WriteCostFlat)
 			depthGas += gctx.Config.WriteCostPerByte * types.Gas(len(value))
 			gctx.ConsumeGas(depthGas, "IavlSet")
 			gas = depthGas
 		} else {
-			// Flat store: WriteCostFlat + WriteCostPerByte
 			gas = gctx.WillSet(value)
 		}
 		store.chargedGas[k] = gas
+		netGas := gctx.Meter.GasConsumed() - gasBefore
+		debugRecordWrite(key, netGas)
 	}
 
 	store.setCacheValue(key, value, false, true)

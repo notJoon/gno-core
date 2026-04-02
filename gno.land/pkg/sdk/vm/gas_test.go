@@ -64,11 +64,15 @@ func TestAddPkgDeliverTx(t *testing.T) {
 	tx.Fee.GasWanted = 500000
 	gctx := auth.SetGasMeter(ctx, tx.Fee.GasWanted)
 	gctx = vmHandler.vm.MakeGnoTransactionStore(gctx)
+	gnolang.DebugGasReset() // reset before metered operation
 	msgs := tx.GetMsgs()
 	res := vmHandler.Process(gctx, msgs[0])
 	gasDeliver := gctx.GasMeter().GasConsumed()
 
 	assert.True(t, res.IsOK())
+
+	// DEBUG: print gas breakdown
+	gnolang.DebugGasPrint()
 
 	// NOTE: let's try to keep this bellow 250_000 :)
 	assert.Equal(t, int64(6619), gasDeliver)

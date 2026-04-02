@@ -3,9 +3,11 @@ package vm
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
+	gno "github.com/gnolang/gno/gnovm/pkg/gnolang"
 	abci "github.com/gnolang/gno/tm2/pkg/bft/abci/types"
 	"github.com/gnolang/gno/tm2/pkg/sdk"
 	"github.com/gnolang/gno/tm2/pkg/std"
@@ -24,6 +26,15 @@ func NewHandler(vm *VMKeeper) vmHandler {
 }
 
 func (vh vmHandler) Process(ctx sdk.Context, msg std.Msg) sdk.Result {
+	gno.DebugGasReset() // DEBUG: reset per-tx
+	defer func() {
+		f, _ := os.OpenFile("/tmp/gno_gas_debug.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if f != nil {
+			fmt.Fprintf(f, "\n>>> TX: %T height=%d gasWanted=%d\n", msg, ctx.BlockHeight(), ctx.GasMeter().Limit())
+			f.Close()
+		}
+		gno.DebugGasPrint()
+	}()
 	switch msg := msg.(type) {
 	case MsgAddPackage:
 		return vh.handleMsgAddPackage(ctx, msg)

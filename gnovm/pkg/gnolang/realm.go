@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"sync"
 
@@ -84,13 +85,50 @@ func (pid PkgID) Bytes() []byte {
 // https://github.com/gnolang/gno/pull/3424#issuecomment-2564571785
 var pkgIDFromPkgPathCache sync.Map
 
+// PkgIDFromPkgPath derives a PkgID from a package path.
+// The first nibble (4 bits) of the Hashlet is reserved for flags:
+//
+//	bit 0 (0x80): IsStdlib — standard library package
+//	bit 1 (0x40): IsImmutable — immutable package (stdlib or /p/)
+//	bit 2 (0x20): IsInternal — internal package path
+//	bit 3 (0x10): reserved (always 0)
+//
+// The remaining 156 bits are the truncated SHA-256 hash.
 func PkgIDFromPkgPath(path string) PkgID {
 	if v, ok := pkgIDFromPkgPathCache.Load(path); ok {
 		return *v.(*PkgID)
 	}
 	pkgID := &PkgID{HashBytes([]byte(path))}
+	// Clear the first nibble, then set flag bits.
+	pkgID.Hashlet[0] &= 0x0F
+	if IsStdlib(path) {
+		pkgID.Hashlet[0] |= 0x80
+	}
+	if IsStdlib(path) || IsPPackagePath(path) {
+		pkgID.Hashlet[0] |= 0x40
+	}
+	if _, isInternal := IsInternalPath(path); isInternal {
+		pkgID.Hashlet[0] |= 0x20
+	}
 	actual, _ := pkgIDFromPkgPathCache.LoadOrStore(path, pkgID)
 	return *actual.(*PkgID)
+}
+
+// IsStdlibPkg returns true if this PkgID is for a standard library package.
+func (pid PkgID) IsStdlibPkg() bool {
+	return pid.Hashlet[0]&0x80 != 0
+}
+
+// IsImmutablePkg returns true if this PkgID is for an immutable package
+// (stdlib or /p/ package). Objects from immutable packages should not
+// have their refcounts or dirty flags modified during realm finalization.
+func (pid PkgID) IsImmutablePkg() bool {
+	return pid.Hashlet[0]&0x40 != 0
+}
+
+// IsInternalPkg returns true if this PkgID is for an internal package path.
+func (pid PkgID) IsInternalPkg() bool {
+	return pid.Hashlet[0]&0x20 != 0
 }
 
 // Returns the ObjectID of the PackageValue associated with path.
@@ -193,6 +231,25 @@ func (rlm *Realm) DidUpdate(po, xo, co Object) {
 	}
 	if po.GetObjectID().PkgID != rlm.ID {
 		panic(&Exception{Value: typedString("cannot modify external-realm or non-realm object")})
+	}
+	// DEBUG: trace co objects from different packages
+	if co != nil && !co.GetObjectID().IsZero() && co.GetObjectID().PkgID != rlm.ID {
+		f, _ := os.OpenFile("/tmp/gno_didup_trace.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if f != nil {
+			fmt.Fprintf(f, "DidUpdate co BEFORE: realm=%s co_type=%T co_id=%v co_refcount=%d co_isReal=%v co_isDirty=%v co_isNewReal=%v\n",
+				rlm.Path, co, co.GetObjectID(), co.GetRefCount(), co.GetIsReal(), co.GetIsDirty(), co.GetIsNewReal())
+		}
+		defer func() {
+			f2, _ := os.OpenFile("/tmp/gno_didup_trace.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if f2 != nil {
+				fmt.Fprintf(f2, "DidUpdate co AFTER:  realm=%s co_type=%T co_id=%v co_refcount=%d co_isReal=%v co_isDirty=%v co_isNewReal=%v\n",
+					rlm.Path, co, co.GetObjectID(), co.GetRefCount(), co.GetIsReal(), co.GetIsDirty(), co.GetIsNewReal())
+				f2.Close()
+			}
+		}()
+		if f != nil {
+			f.Close()
+		}
 	}
 
 	// XXX check if this boosts performance
