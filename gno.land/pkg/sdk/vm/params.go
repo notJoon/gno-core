@@ -20,6 +20,7 @@ const (
 	depositDefault                 = "600000000ugnot"
 	storagePriceDefault            = "100ugnot" // cost per byte (1 gnot per 10KB) 1B GNOT == 10TB
 	storageFeeCollectorNameDefault = "storage_fee_collector"
+	minDepthDefault                = int64(12) // floor for IAVL depth gas estimate (~4K keys equivalent)
 )
 
 var ASCIIDomain = regexp.MustCompile(`^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$`)
@@ -32,10 +33,11 @@ type Params struct {
 	DefaultDeposit      string         `json:"default_deposit" yaml:"default_deposit"`
 	StoragePrice        string         `json:"storage_price" yaml:"storage_price"`
 	StorageFeeCollector crypto.Address `json:"storage_fee_collector" yaml:"storage_fee_collector"`
+	MinDepth            int64          `json:"min_depth" yaml:"min_depth"`
 }
 
 // NewParams creates a new Params object
-func NewParams(namesPkgPath, claPkgPath, chainDomain, defaultDeposit, storagePrice string, storageFeeCollector crypto.Address) Params {
+func NewParams(namesPkgPath, claPkgPath, chainDomain, defaultDeposit, storagePrice string, storageFeeCollector crypto.Address, minDepth int64) Params {
 	return Params{
 		SysNamesPkgPath:     namesPkgPath,
 		SysCLAPkgPath:       claPkgPath,
@@ -43,13 +45,15 @@ func NewParams(namesPkgPath, claPkgPath, chainDomain, defaultDeposit, storagePri
 		DefaultDeposit:      defaultDeposit,
 		StoragePrice:        storagePrice,
 		StorageFeeCollector: storageFeeCollector,
+		MinDepth:            minDepth,
 	}
 }
 
 // DefaultParams returns a default set of parameters.
 func DefaultParams() Params {
 	return NewParams(sysNamesPkgDefault, sysCLAPkgDefault, chainDomainDefault,
-		depositDefault, storagePriceDefault, crypto.AddressFromPreimage([]byte(storageFeeCollectorNameDefault)))
+		depositDefault, storagePriceDefault, crypto.AddressFromPreimage([]byte(storageFeeCollectorNameDefault)),
+		minDepthDefault)
 }
 
 // String implements the stringer interface.
@@ -152,6 +156,8 @@ func (vm *VMKeeper) WillSetParam(ctx sdk.Context, key string, value any) {
 			panic(fmt.Sprintf("invalid storage_fee_collector address: %v", err))
 		}
 		params.StorageFeeCollector = addr
+	case "p:min_depth":
+		params.MinDepth = sdkparams.MustParamInt64("min_depth", value)
 	default:
 		if strings.HasPrefix(key, "p:") {
 			panic(fmt.Sprintf("unknown vm param key: %q", key))

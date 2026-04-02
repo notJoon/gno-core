@@ -334,6 +334,11 @@ func (vm *VMKeeper) newGnoTransactionStore(ctx sdk.Context) gno.TransactionStore
 	base := ctx.Store(vm.baseKey)
 	iavl := ctx.Store(vm.iavlKey)
 	gctx := ctx.GasContext()
+	if gctx != nil {
+		// Apply MinDepth governance parameter.
+		params := vm.GetParams(ctx)
+		gctx.Config.MinDepth = params.MinDepth
+	}
 	gasMeter := ctx.GasMeter()
 
 	return vm.gnoStore.BeginTransaction(base, iavl, gctx, gasMeter)

@@ -91,12 +91,22 @@ func TestAddPkgDeliverTxFailed(t *testing.T) {
 	assert.Equal(t, int64(0), gasDeliver)
 }
 
-// Not enough gas for a failed transaction.
-// NOTE: With auth storage gas temporarily removed (commit 1 of gas
-// refactor), a failed tx consumes 0 gas, so this test is skipped until
-// gas charging is restored at the cache.Store boundary in commit 2.
+// A failed transaction that consumes no gas cannot run out of gas.
 func TestAddPkgDeliverTxFailedNoGas(t *testing.T) {
-	t.Skip("auth storage gas temporarily removed; will be restored in gas refactor commit 2")
+	isValidTx := false
+	ctx, tx, vmHandler := setupAddPkg(isValidTx)
+
+	ctx = ctx.WithMode(sdk.RunTxModeDeliver)
+	tx.Fee.GasWanted = 1
+	gctx := auth.SetGasMeter(ctx, tx.Fee.GasWanted)
+	gctx = vmHandler.vm.MakeGnoTransactionStore(gctx)
+	msgs := tx.GetMsgs()
+	res := vmHandler.Process(gctx, msgs[0])
+	gasDeliver := gctx.GasMeter().GasConsumed()
+
+	// Failed tx validation consumes no amino or I/O gas.
+	assert.False(t, res.IsOK())
+	assert.Equal(t, int64(0), gasDeliver)
 }
 
 // Set up a test env for both a successful and a failed tx.
