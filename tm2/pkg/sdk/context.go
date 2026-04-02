@@ -8,7 +8,6 @@ import (
 	"github.com/gnolang/gno/tm2/pkg/amino"
 	abci "github.com/gnolang/gno/tm2/pkg/bft/abci/types"
 	"github.com/gnolang/gno/tm2/pkg/store"
-	"github.com/gnolang/gno/tm2/pkg/store/gas"
 )
 
 /*
@@ -169,11 +168,6 @@ func (c Context) Value(key any) any {
 // ----------------------------------------------------------------------------
 // Store / Caching
 // ----------------------------------------------------------------------------
-
-// Store fetches a Store from the MultiStore, but wrapped for gas calculation.
-func (c Context) GasStore(key store.StoreKey) store.Store {
-	return gas.New(c.MultiStore().GetStore(key), c.GasMeter(), store.DefaultGasConfig())
-}
 
 func (c Context) Store(key store.StoreKey) store.Store {
 	return c.MultiStore().GetStore(key)

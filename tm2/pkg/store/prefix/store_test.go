@@ -9,7 +9,6 @@ import (
 	"github.com/gnolang/gno/tm2/pkg/db/memdb"
 	"github.com/gnolang/gno/tm2/pkg/iavl"
 	"github.com/gnolang/gno/tm2/pkg/store/dbadapter"
-	"github.com/gnolang/gno/tm2/pkg/store/gas"
 	storeiavl "github.com/gnolang/gno/tm2/pkg/store/iavl"
 	"github.com/gnolang/gno/tm2/pkg/store/types"
 )
@@ -104,10 +103,9 @@ func TestIAVLStorePrefix(t *testing.T) {
 func TestPrefixStoreNoNilSet(t *testing.T) {
 	t.Parallel()
 
-	meter := types.NewGasMeter(100000000)
 	mem := dbadapter.Store{DB: memdb.NewMemDB()}
-	gasStore := gas.New(mem, meter, types.DefaultGasConfig())
-	require.Panics(t, func() { gasStore.Set(nil, []byte("key"), nil) }, "setting a nil value should panic")
+	cs := mem.CacheWrap()
+	require.Panics(t, func() { cs.Set(nil, []byte("key"), nil) }, "setting a nil value should panic")
 }
 
 func TestPrefixStoreIterate(t *testing.T) {
