@@ -340,16 +340,17 @@ type GasConfig struct {
 }
 
 // DefaultGasConfig returns a default gas config for KVStores.
-// These are the tm2 defaults (uncalibrated legacy values from Cosmos SDK).
+// Calibrated for LMDB on local NVMe from gnovm/cmd/benchstore.
+// See gno.land/adr/gas_refactor.md Calibration section.
 func DefaultGasConfig() GasConfig {
 	return GasConfig{
-		HasCost:          1000,
-		DeleteCost:       1000,
-		ReadCostFlat:     1000,
-		ReadCostPerByte:  3,
-		WriteCostFlat:    2000,
-		WriteCostPerByte: 30,
-		IterNextCostFlat: 30,
-		MinDepth:         0,
+		HasCost:          59_000, // same as ReadCostFlat (Has traverses the tree)
+		DeleteCost:       59_000, // same as ReadCostFlat (delete requires finding the key)
+		ReadCostFlat:     59_000, // ~59µs per random read at 100M keys
+		ReadCostPerByte:  17,     // ~17 ns/byte (LMDB overflow page reads)
+		WriteCostFlat:    24_000, // ~24µs per write (amortized, batch=1000)
+		WriteCostPerByte: 14,     // ~14 ns/byte (LMDB overflow page writes)
+		IterNextCostFlat: 1_000,  // ~1µs per iteration step (sequential leaf scan)
+		MinDepth:         0,      // tm2 default: no floor
 	}
 }
