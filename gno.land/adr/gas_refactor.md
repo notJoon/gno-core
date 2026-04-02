@@ -1,5 +1,7 @@
 # Gas Refactor: Charge at the Store Boundary
 
+**Status: Implemented**
+
 ## Problem
 
 Gas is charged at the wrong layer. Both the tm2 `gas.Store` wrapper and the
@@ -775,3 +777,105 @@ production-available metrics.
   to the `GasMeter` interface for write deduplication.
 - **IAVL tree internals**: unchanged (no gctx threading through tree/nodeDB).
 - **dbm.DB interface**: unchanged.
+
+## PkgID Flag Nibble
+
+The first nibble (4 bits) of `PkgID.Hashlet` is reserved for package
+classification flags, set during `PkgIDFromPkgPath()`:
+
+- bit 0 (0x80): `IsStdlib` — standard library package
+- bit 1 (0x40): `IsImmutable` — stdlib or `/p/` package
+- bit 2 (0x20): `IsInternal` — internal package path
+- bit 3 (0x10): reserved (always 0)
+
+The remaining 156 bits are the truncated SHA-256 hash. Methods:
+`PkgID.IsStdlibPkg()`, `PkgID.IsImmutablePkg()`, `PkgID.IsInternalPkg()`.
+O(1) bitwise checks, no map lookups or path string parsing.
+
+These flags enable efficient runtime decisions about package mutability
+and stdlib caching without needing reverse mappings from hash to path.
+
+## Immutable Package Guard
+
+When a realm references a stdlib or `/p/` package object (e.g.,
+`ref = strconv.Itoa`), the realm finalization previously mutated the
+object's `RefCount`, `IsEscaped`, and `ModTime`, then re-persisted it
+to the store. This was unnecessary — immutable package objects are never
+deleted, so refcount tracking serves no purpose from other realms.
+
+In `DidUpdate`, `incRefCreatedDescendants`, and `decRefDeletedDescendants`,
+all mutations are skipped when:
+
+```go
+co.GetObjectID().PkgID.IsImmutablePkg() && co.GetObjectID().PkgID != rlm.ID
+```
+
+The `PkgID != rlm.ID` check allows mutations during the package's own
+initialization (via throwaway realm where `rlm.ID == PkgID`). For objects
+with zero ObjectID (not yet real), `IsImmutablePkg()` returns false, so
+the guard doesn't apply.
+
+This eliminates spurious writes to stdlib/`p`-package objects during
+realm transactions.
+
+## Stdlib Byte Cache
+
+Stdlib object reads previously charged 59K+ gas per cache miss at the
+tx-scoped cache layer, even though stdlib objects are immutable
+infrastructure loaded at every node start. Profiling showed the
+RegisterUser transaction spent 408M gas (80%) on 252 stdlib object reads.
+
+### Design
+
+`defaultStore.stdlibKeyBytes map[string][]byte` caches raw amino bytes
+for all stdlib objects. In `loadObjectSafe`, stdlib objects are read from
+the byte cache instead of `baseStore.Get(gctx)`, skipping I/O gas:
+
+```go
+var hashbz []byte
+if oid.PkgID.IsStdlibPkg() {
+    hashbz = ds.stdlibKeyBytes[key]  // from byte cache — no I/O gas
+}
+if hashbz == nil {
+    hashbz = ds.baseStore.Get(ds.gctx, []byte(key))  // charges I/O gas
+}
+```
+
+Each transaction amino-unmarshals its own copy from cached bytes — no
+shared mutable objects, no aliasing risk. If a VM bug mutates a stdlib
+object, the corruption is contained to one transaction. Amino decode gas
+(3/byte) is still charged — it's real CPU work.
+
+### Population
+
+`PopulateStdlibCache(paths)` iterates the `baseStore` with per-package
+prefix iterators on `"oid:<pkgid_hex>:"` for each stdlib path. Called:
+
+- From `VMKeeper.Initialize()` on restart (after `PreprocessAllFilesAndSaveBlockNodes`)
+- From `InitChainerConfig.loadStdlibs()` at genesis (after `CommitGnoTransactionStore`)
+
+The map is shared via `BeginTransaction` (shared reference). Stdlib
+objects are immutable after genesis, so bytes never change.
+
+### Safety
+
+The byte cache approach was chosen over an object cache because:
+- Each tx gets its own deserialized copy (no shared mutable state)
+- If a VM bug mutates a stdlib object, it doesn't persist beyond the tx
+- No aliasing between per-tx `cacheObjects` and shared cache
+
+## Implementation Commits
+
+1. ADR — this document
+2. `*GasContext` on Store interface — ~490 call sites updated
+3. cache.Store gas charging — DepthEstimator, chargedGas deduplication
+4. GnoVM store threaded — `ds.gctx` through all baseStore/iavlStore calls
+5. Amino constants — 8 per-operation → 2 universal encode/decode
+6. gas.Store deleted — `GasStore()` removed from sdk.Context
+7. Calibrated constants — LMDB benchmarks applied to DefaultGasConfig
+8. MinDepth governance — `p:min_depth` param, default 12 for gno.land
+9. PkgID flag nibble — IsStdlib/IsImmutable/IsInternal bits
+10. Immutable package guard — skip refcount mutations in DidUpdate
+11. Stdlib byte cache — gas-free stdlib object reads
+12. Debug cleanup — all instrumentation removed
+13. ADR update — this section
