@@ -263,28 +263,39 @@ func (rlm *Realm) DidUpdate(po, xo, co Object) {
 	rlm.MarkDirty(po)
 
 	if co != nil {
-		co.IncRefCount()
-		if co.GetRefCount() > 1 {
-			if !co.GetIsEscaped() {
-				rlm.MarkNewEscaped(co)
-			}
-		}
-		if co.GetIsReal() {
-			rlm.MarkDirty(co)
+		coPkgID := co.GetObjectID().PkgID
+		if coPkgID.IsImmutablePkg() && coPkgID != rlm.ID {
+			// Skip — immutable package objects (stdlib, /p/) don't need
+			// refcount tracking when referenced from a different realm.
 		} else {
-			co.SetOwner(po)
-			rlm.MarkNewReal(co)
+			co.IncRefCount()
+			if co.GetRefCount() > 1 {
+				if !co.GetIsEscaped() {
+					rlm.MarkNewEscaped(co)
+				}
+			}
+			if co.GetIsReal() {
+				rlm.MarkDirty(co)
+			} else {
+				co.SetOwner(po)
+				rlm.MarkNewReal(co)
+			}
 		}
 	}
 
 	if xo != nil {
-		xo.DecRefCount()
-		if xo.GetRefCount() == 0 {
-			if xo.GetIsReal() {
-				rlm.MarkNewDeleted(xo)
+		xoPkgID := xo.GetObjectID().PkgID
+		if xoPkgID.IsImmutablePkg() && xoPkgID != rlm.ID {
+			// Skip — immutable package objects don't need refcount tracking.
+		} else {
+			xo.DecRefCount()
+			if xo.GetRefCount() == 0 {
+				if xo.GetIsReal() {
+					rlm.MarkNewDeleted(xo)
+				}
+			} else if xo.GetIsReal() {
+				rlm.MarkDirty(xo)
 			}
-		} else if xo.GetIsReal() {
-			rlm.MarkDirty(xo)
 		}
 	}
 }
@@ -519,6 +530,11 @@ func (rlm *Realm) incRefCreatedDescendants(store Store, oo Object) {
 			// extern package values are skipped.
 			continue
 		}
+		// Skip immutable package objects from external packages.
+		childPkgID := child.GetObjectID().PkgID
+		if childPkgID.IsImmutablePkg() && childPkgID != rlm.ID {
+			continue
+		}
 		child.IncRefCount()
 		rc := child.GetRefCount()
 		if rc == 1 {
@@ -609,6 +625,11 @@ func (rlm *Realm) decRefDeletedDescendants(store Store, oo Object) {
 	// recurse for children
 	more := getChildObjects2(store, oo)
 	for _, child := range more {
+		// Skip immutable package objects from external packages.
+		childPkgID := child.GetObjectID().PkgID
+		if childPkgID.IsImmutablePkg() && childPkgID != rlm.ID {
+			continue
+		}
 		child.DecRefCount()
 		rc := child.GetRefCount()
 		if rc == 0 {
