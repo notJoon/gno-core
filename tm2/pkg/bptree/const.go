@@ -1,0 +1,44 @@
+package bptree
+
+import "crypto/sha256"
+
+const (
+	// B is the branching factor. Inner nodes have up to B children
+	// and B-1 separator keys. Leaf nodes have up to B key-value pairs.
+	B = 32
+
+	// MinKeys is the minimum occupancy for non-root nodes (B/2).
+	MinKeys = B / 2
+
+	// HashSize is the size of a SHA256 hash in bytes.
+	HashSize = sha256.Size // 32
+
+	// NodeKeySize is the size of a serialized NodeKey (version:8 + nonce:4).
+	NodeKeySize = 12
+
+	// Domain separator prefix bytes (RFC 6962).
+	DomainLeaf  byte = 0x00
+	DomainInner byte = 0x01
+	DomainEmpty byte = 0x02
+
+	// DB key prefixes.
+	PrefixNode byte = 'B'
+	PrefixVal  byte = 'V'
+	PrefixRoot byte = 'R'
+	PrefixMeta byte = 'M'
+
+	// Node type bytes for serialization.
+	TypeInner byte = 0x01
+	TypeLeaf  byte = 0x02
+)
+
+// Hash is a fixed-size SHA256 hash.
+type Hash = [HashSize]byte
+
+// SentinelHash is SHA256(0x02). Used for empty mini-merkle slots.
+// Provably distinct from any 0x00-prefixed (leaf) or 0x01-prefixed (inner) hash.
+var SentinelHash Hash
+
+func init() {
+	SentinelHash = sha256.Sum256([]byte{DomainEmpty})
+}

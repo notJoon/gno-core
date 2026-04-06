@@ -1,0 +1,378 @@
+package bptree
+
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"sync"
+
+	lru "github.com/hashicorp/golang-lru/v2"
+
+	dbm "github.com/gnolang/gno/tm2/pkg/db"
+)
+
+// nodeDB handles persistence: reading/writing nodes, values, and root
+// references to the underlying key-value store.
+type nodeDB struct {
+	db    dbm.DB
+	batch dbm.Batch
+	opts  Options
+
+	nodeCache *lru.Cache[string, Node] // keyed by serialized NodeKey
+
+	mtx            sync.Mutex
+	latestVersion  int64
+	firstVersion   int64
+	versionReaders map[int64]uint32
+
+	isCommitting bool
+	logger       Logger
+
+	nextNonce uint32 // per-SaveVersion nonce counter
+}
+
+func newNodeDB(db dbm.DB, cacheSize int, logger Logger, opts Options) *nodeDB {
+	var cache *lru.Cache[string, Node]
+	if cacheSize > 0 {
+		var err error
+		cache, err = lru.New[string, Node](cacheSize)
+		if err != nil {
+			panic(err)
+		}
+	}
+	return &nodeDB{
+		db:             db,
+		batch:          db.NewBatch(),
+		opts:           opts,
+		nodeCache:      cache,
+		versionReaders: make(map[int64]uint32),
+		logger:         logger,
+	}
+}
+
+// --- DB key construction ---
+
+func nodeDBKey(nk []byte) []byte {
+	key := make([]byte, 1+len(nk))
+	key[0] = PrefixNode
+	copy(key[1:], nk)
+	return key
+}
+
+func valueDBKey(hash Hash) []byte {
+	key := make([]byte, 1+HashSize)
+	key[0] = PrefixVal
+	copy(key[1:], hash[:])
+	return key
+}
+
+func rootDBKey(version int64) []byte {
+	key := make([]byte, 1+8)
+	key[0] = PrefixRoot
+	binary.BigEndian.PutUint64(key[1:], uint64(version))
+	return key
+}
+
+// --- Node operations ---
+
+// SaveNode writes a node to the batch and adds it to the cache.
+func (ndb *nodeDB) SaveNode(node Node) error {
+	nk := node.GetNodeKey()
+	if nk == nil {
+		return ErrNodeMissingNodeKey
+	}
+	nkBytes := nk.GetKey()
+
+	var buf bytes.Buffer
+	switch n := node.(type) {
+	case *InnerNode:
+		if err := n.Serialize(&buf); err != nil {
+			return fmt.Errorf("serializing inner node: %w", err)
+		}
+	case *LeafNode:
+		if err := n.Serialize(&buf); err != nil {
+			return fmt.Errorf("serializing leaf node: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown node type")
+	}
+
+	if err := ndb.batch.Set(nodeDBKey(nkBytes), buf.Bytes()); err != nil {
+		return err
+	}
+
+	if ndb.nodeCache != nil {
+		ndb.nodeCache.Add(string(nkBytes), node)
+	}
+	return nil
+}
+
+// GetNode loads a node from cache or DB.
+func (ndb *nodeDB) GetNode(nkBytes []byte) (Node, error) {
+	// Check cache
+	if ndb.nodeCache != nil {
+		if node, ok := ndb.nodeCache.Get(string(nkBytes)); ok {
+			return node, nil
+		}
+	}
+
+	// Load from DB
+	data, err := ndb.db.Get(nodeDBKey(nkBytes))
+	if err != nil {
+		return nil, fmt.Errorf("db get node: %w", err)
+	}
+	if data == nil {
+		return nil, fmt.Errorf("node not found: %x", nkBytes)
+	}
+
+	nk := GetNodeKey(nkBytes)
+	node, err := ReadNode(nk, data)
+	if err != nil {
+		return nil, fmt.Errorf("deserializing node: %w", err)
+	}
+
+	// Set ndb on inner nodes for lazy child loading
+	if inner, ok := node.(*InnerNode); ok {
+		inner.ndb = ndb
+	}
+
+	if ndb.nodeCache != nil {
+		ndb.nodeCache.Add(string(nkBytes), node)
+	}
+	return node, nil
+}
+
+// --- Value operations ---
+
+// SaveValue writes a value to the DB directly (not via batch).
+// Values are content-addressed and immutable, so writing to DB early
+// is safe and allows Get to work before SaveVersion/Commit.
+// The value is copied to prevent caller mutation from affecting stored data.
+func (ndb *nodeDB) SaveValue(value []byte, hash Hash) error {
+	key := valueDBKey(hash)
+	valCopy := make([]byte, len(value))
+	copy(valCopy, value)
+	if err := ndb.db.Set(key, valCopy); err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetValue loads a value by its hash from the DB.
+func (ndb *nodeDB) GetValue(hash Hash) ([]byte, error) {
+	data, err := ndb.db.Get(valueDBKey(hash))
+	if err != nil {
+		return nil, fmt.Errorf("db get value: %w", err)
+	}
+	return data, nil
+}
+
+// --- Root operations ---
+
+// SaveRoot writes a root reference: NodeKey (12B) + root hash (32B) = 44B.
+func (ndb *nodeDB) SaveRoot(version int64, nk *NodeKey, hash []byte) error {
+	val := make([]byte, 0, NodeKeySize+HashSize)
+	if nk != nil {
+		val = append(val, nk.GetKey()...)
+		val = append(val, hash...)
+	}
+	// Empty val for empty tree
+	return ndb.batch.Set(rootDBKey(version), val)
+}
+
+// GetRoot loads the root reference for a version.
+// Returns (nodeKey bytes, root hash, error). Both nil for empty tree.
+func (ndb *nodeDB) GetRoot(version int64) ([]byte, []byte, error) {
+	data, err := ndb.db.Get(rootDBKey(version))
+	if err != nil {
+		return nil, nil, fmt.Errorf("db get root: %w", err)
+	}
+	if data == nil {
+		return nil, nil, ErrVersionDoesNotExist
+	}
+	if len(data) == 0 {
+		// Empty tree at this version
+		return nil, nil, nil
+	}
+	if len(data) != NodeKeySize+HashSize {
+		return nil, nil, fmt.Errorf("corrupt root ref: len=%d", len(data))
+	}
+	return data[:NodeKeySize], data[NodeKeySize:], nil
+}
+
+// --- Version management ---
+
+func (ndb *nodeDB) getLatestVersion() int64 {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
+	return ndb.latestVersion
+}
+
+func (ndb *nodeDB) setLatestVersion(v int64) {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
+	ndb.latestVersion = v
+}
+
+func (ndb *nodeDB) getFirstVersion() int64 {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
+	return ndb.firstVersion
+}
+
+func (ndb *nodeDB) setFirstVersion(v int64) {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
+	ndb.firstVersion = v
+}
+
+// VersionExists checks if a root reference exists for the given version.
+func (ndb *nodeDB) VersionExists(version int64) bool {
+	has, _ := ndb.db.Has(rootDBKey(version))
+	return has
+}
+
+// AvailableVersions returns all versions that have root references.
+func (ndb *nodeDB) AvailableVersions() []int {
+	var versions []int
+	first := ndb.getFirstVersion()
+	latest := ndb.getLatestVersion()
+	for v := first; v <= latest; v++ {
+		if ndb.VersionExists(v) {
+			versions = append(versions, int(v))
+		}
+	}
+	return versions
+}
+
+// discoverVersions scans the DB for root references to find
+// the first and latest versions. Called during Load.
+func (ndb *nodeDB) discoverVersions() error {
+	prefix := []byte{PrefixRoot}
+	end := make([]byte, len(prefix))
+	copy(end, prefix)
+	end[0]++
+
+	itr, err := ndb.db.Iterator(prefix, end)
+	if err != nil {
+		return err
+	}
+	defer itr.Close()
+
+	first := int64(0)
+	latest := int64(0)
+	for ; itr.Valid(); itr.Next() {
+		key := itr.Key()
+		if len(key) != 9 { // prefix(1) + version(8)
+			continue
+		}
+		v := int64(binary.BigEndian.Uint64(key[1:]))
+		if first == 0 || v < first {
+			first = v
+		}
+		if v > latest {
+			latest = v
+		}
+	}
+	if err := itr.Error(); err != nil {
+		return err
+	}
+
+	ndb.mtx.Lock()
+	ndb.firstVersion = first
+	ndb.latestVersion = latest
+	ndb.mtx.Unlock()
+	return nil
+}
+
+// --- Version readers ---
+
+func (ndb *nodeDB) incrVersionReaders(version int64) {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
+	ndb.versionReaders[version]++
+}
+
+func (ndb *nodeDB) decrVersionReaders(version int64) {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
+	if ndb.versionReaders[version] > 0 {
+		ndb.versionReaders[version]--
+		if ndb.versionReaders[version] == 0 {
+			delete(ndb.versionReaders, version)
+		}
+	}
+}
+
+func (ndb *nodeDB) hasVersionReaders(version int64) bool {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
+	return ndb.versionReaders[version] > 0
+}
+
+// --- Commit coordination ---
+
+func (ndb *nodeDB) SetCommitting() {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
+	ndb.isCommitting = true
+}
+
+func (ndb *nodeDB) UnsetCommitting() {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
+	ndb.isCommitting = false
+}
+
+// --- Batch operations ---
+
+// Commit flushes the current batch to disk and creates a new batch.
+// Always closes the old batch and creates a new one, even on error,
+// to avoid leaving the nodeDB in a broken state.
+func (ndb *nodeDB) Commit() error {
+	var err error
+	if ndb.opts.Sync {
+		err = ndb.batch.WriteSync()
+	} else {
+		err = ndb.batch.Write()
+	}
+	ndb.batch.Close()
+	ndb.batch = ndb.db.NewBatch()
+	return err
+}
+
+// ResetNonce resets the per-version nonce counter.
+func (ndb *nodeDB) ResetNonce() {
+	ndb.nextNonce = 0
+}
+
+// NextNodeKey returns a new NodeKey for the given version with an
+// auto-incrementing nonce.
+func (ndb *nodeDB) NextNodeKey(version int64) *NodeKey {
+	ndb.nextNonce++
+	return &NodeKey{Version: version, Nonce: ndb.nextNonce}
+}
+
+// Close closes the nodeDB batch. The underlying DB is NOT closed
+// because it may be shared by other trees.
+func (ndb *nodeDB) Close() error {
+	if ndb.batch != nil {
+		ndb.batch.Close()
+		ndb.batch = nil
+	}
+	return nil
+}
+
+// DeleteVersion removes a root reference and all nodes for that version
+// from the batch. Used by DeleteVersionsFrom.
+func (ndb *nodeDB) DeleteRoot(version int64) error {
+	return ndb.batch.Delete(rootDBKey(version))
+}
+
+// DeleteNode removes a node from the batch (used during pruning).
+func (ndb *nodeDB) DeleteNode(nkBytes []byte) error {
+	if ndb.nodeCache != nil {
+		ndb.nodeCache.Remove(string(nkBytes))
+	}
+	return ndb.batch.Delete(nodeDBKey(nkBytes))
+}
