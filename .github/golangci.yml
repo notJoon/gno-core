@@ -56,6 +56,7 @@ linters:
         - G122 # Filesystem operation race condition in filepath.Walk/WalkDir callback
         - G602 # Slice index out of range false positives
         - G703 # Path traversal via taint analysis false positives
+        - G704 # SSRF via taint analysis false positives
         - G705 # XSS via taint analysis false positives
     staticcheck:
       checks:
