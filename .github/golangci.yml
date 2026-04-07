@@ -16,7 +16,7 @@ linters:
     - unconvert # Unnecessary type conversions
     - tparallel # Detects inappropriate usage of t.Parallel() method in your Go test codes
     - thelper # Detects golang test helpers without t.Helper() call and checks the consistency of test helpers
-    - prealloc # Finds slice declarations that could potentially be pre-allocated
+    # - prealloc # Disabled: too noisy with false positives after golangci-lint v2.11 upgrade
     - predeclared # Finds code that shadows one of Go's predeclared identifiers
     - nolintlint # Ill-formed or insufficient nolint directives
     - misspell # Misspelled English words in comments
@@ -79,7 +79,6 @@ linters:
           - makezero # Disabled linting of intentional slice appends
           - goconst # Disabled linting of common mnemonics and test case strings
           - unused # Disabled linting of unused mock methods
-          - prealloc # Disabled linting of slice preallocation in tests
           - staticcheck # Disabled quick-fix suggestions in tests
         path: _test\.go
       - linters:
