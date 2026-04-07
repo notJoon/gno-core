@@ -73,6 +73,8 @@ linters:
           - makezero # Disabled linting of intentional slice appends
           - goconst # Disabled linting of common mnemonics and test case strings
           - unused # Disabled linting of unused mock methods
+          - prealloc # Disabled linting of slice preallocation in tests
+          - staticcheck # Disabled quick-fix suggestions in tests
         path: _test\.go
       - linters:
           - errorlint
