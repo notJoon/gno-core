@@ -1,8 +1,6 @@
 module github.com/gnolang/libtm
 
-go 1.22
-
-toolchain go1.22.4
+go 1.25.0
 
 require (
 	github.com/rs/xid v1.5.0
