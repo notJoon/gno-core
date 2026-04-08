@@ -1085,7 +1085,7 @@ func (rlm *Realm) assertTypeIsPublic(store Store, t Type, visited map[TypeID]str
 		}
 	case FieldType:
 		rlm.assertTypeIsPublic(store, tt.Type, visited)
-	case *SliceType, *ArrayType, *ChanType, *PointerType:
+	case *SliceType, *ArrayType, *PointerType:
 		rlm.assertTypeIsPublic(store, tt.Elem(), visited)
 	case *tupleType:
 		for _, et := range tt.Elts {
@@ -1390,11 +1390,6 @@ func copyTypeWithRefs(typ Type) Type {
 		return dt
 	case *PackageType:
 		return &PackageType{}
-	case *ChanType:
-		return &ChanType{
-			Dir: ct.Dir,
-			Elt: refOrCopyType(ct.Elt),
-		}
 	case blockType:
 		return blockType{}
 	case *tupleType:
@@ -1655,9 +1650,6 @@ func fillType(store Store, typ Type) Type {
 		}
 	case *PackageType:
 		return ct // nothing to do
-	case *ChanType:
-		ct.Elt = fillType(store, ct.Elt)
-		return ct
 	case blockType:
 		return ct // nothing to do
 	case *tupleType:
