@@ -229,6 +229,9 @@ func readInnerNode(nk *NodeKey, r *bytes.Reader) (_ *InnerNode, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading numKeys: %w", err)
 	}
+	if numKeys > B-1 {
+		return nil, fmt.Errorf("inner node numKeys %d exceeds max %d", numKeys, B-1)
+	}
 	n.numKeys = int16(numKeys)
 
 	n.size, err = binary.ReadVarint(r)
@@ -272,6 +275,9 @@ func readLeafNode(nk *NodeKey, r *bytes.Reader) (_ *LeafNode, err error) {
 	numKeys, err := binary.ReadUvarint(r)
 	if err != nil {
 		return nil, fmt.Errorf("reading numKeys: %w", err)
+	}
+	if numKeys > B {
+		return nil, fmt.Errorf("leaf node numKeys %d exceeds max %d", numKeys, B)
 	}
 	n.numKeys = int16(numKeys)
 
@@ -319,6 +325,9 @@ func readBytes(r *bytes.Reader) ([]byte, error) {
 	length, err := binary.ReadUvarint(r)
 	if err != nil {
 		return nil, err
+	}
+	if int(length) > r.Len() {
+		return nil, fmt.Errorf("readBytes: length %d exceeds remaining %d", length, r.Len())
 	}
 	b := make([]byte, length)
 	if _, err := io.ReadFull(r, b); err != nil {
