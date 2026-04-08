@@ -158,9 +158,13 @@ func innerInsert(inner *InnerNode, key []byte, valueHash Hash) insertResult {
 	allKeys[childIdx] = sr.separator
 	copy(allKeys[childIdx+1:], inner.keys[childIdx:B-1])
 
-	copy(allChildNodes[:childIdx+1], inner.childNodes[:childIdx+1])
+	for i := 0; i <= childIdx; i++ {
+		allChildNodes[i] = inner.getChild(i)
+	}
 	allChildNodes[childIdx+1] = sr.right
-	copy(allChildNodes[childIdx+2:], inner.childNodes[childIdx+1:B])
+	for i := childIdx + 1; i < B; i++ {
+		allChildNodes[i+1] = inner.getChild(i)
+	}
 
 	copy(allChildHashes[:childIdx+1], inner.childHashes[:childIdx+1])
 	allChildHashes[childIdx+1] = rightChildHash

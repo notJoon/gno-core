@@ -855,3 +855,123 @@ func TestPersistence_ExportImportHashMatch(t *testing.T) {
 		t.Logf("Export/Import produced different hash (different tree structure) — expected for B+ trees")
 	}
 }
+
+// findFullInnerNode recursively searches for an InnerNode with numKeys == B-1.
+// Returns the node and the key range it covers, or nil if none found.
+func findFullInnerNode(node Node) *InnerNode {
+	inner, ok := node.(*InnerNode)
+	if !ok {
+		return nil
+	}
+	if int(inner.numKeys) == B-1 {
+		return inner
+	}
+	for i := 0; i < inner.NumChildren(); i++ {
+		if inner.childNodes[i] != nil {
+			if found := findFullInnerNode(inner.childNodes[i]); found != nil {
+				return found
+			}
+		}
+	}
+	return nil
+}
+
+// TestC4_InnerSplitWithLazyChildren reproduces the C4 bug:
+// When a DB-backed InnerNode is full (31 keys, 32 children) and a child
+// split propagates up, the inner split code copies childNodes directly
+// via copy(). Only the one child accessed via getChild() is loaded;
+// the remaining 30+ children are nil. nodeSize(nil) then panics.
+func TestC4_InnerSplitWithLazyChildren(t *testing.T) {
+	// Strategy: Insert sequential keys until a height-1 inner node has
+	// exactly B-1 = 31 keys (full). With B=32 and 90/10 leaf splits,
+	// each leaf split adds one separator to the parent inner node.
+	// After 31 leaf splits the inner node is full. We save at that point,
+	// reload (making all children lazy), then insert one more key to
+	// trigger a 32nd leaf split → inner split on the lazy-loaded node.
+	tree := newTestTree(t)
+
+	// Insert keys in batches, checking for a full inner node after each batch.
+	// With 90/10 splits, each ~30 sequential keys cause a leaf split.
+	// 31 leaf splits ≈ 930 keys, but tree structure varies.
+	var fullInnerKeys int
+	for i := 0; i < 2000; i++ {
+		tree.Set(fmt.Appendf(nil, "c4k%05d", i), fmt.Appendf(nil, "v%05d", i))
+
+		// Check every 30 keys (roughly one leaf split cycle)
+		if (i+1)%30 == 0 {
+			found := findFullInnerNode(tree.root)
+			if found != nil && found.height == 1 {
+				fullInnerKeys = i + 1
+				t.Logf("found full inner node (numKeys=%d, height=%d) after %d keys",
+					found.numKeys, found.height, fullInnerKeys)
+				break
+			}
+		}
+	}
+	if fullInnerKeys == 0 {
+		t.Fatalf("could not find a full inner node (numKeys=%d) in up to 2000 keys", B-1)
+	}
+
+	// Save to DB at this exact point
+	_, _, err := tree.SaveVersion()
+	if err != nil {
+		t.Fatalf("SaveVersion: %v", err)
+	}
+
+	// Reload from DB — all inner node childNodes become nil (lazy)
+	tree2 := NewMutableTreeWithDB(tree.ndb.db, 1000, NewNopLogger())
+	if _, err := tree2.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Verify that loaded tree has lazy children
+	root2, ok := tree2.root.(*InnerNode)
+	if !ok {
+		t.Fatalf("root is not InnerNode after reload")
+	}
+	nilCount := 0
+	for i := 0; i < root2.NumChildren(); i++ {
+		if root2.childNodes[i] == nil {
+			nilCount++
+		}
+	}
+	if nilCount == 0 {
+		t.Fatalf("expected lazy children after Load")
+	}
+	t.Logf("reloaded root: numKeys=%d, nil children=%d/%d",
+		root2.numKeys, nilCount, root2.NumChildren())
+
+	// Insert enough keys to trigger a leaf split that propagates up to the
+	// full inner node. Since the full inner node was the one receiving
+	// sequential inserts, inserting more sequential keys will fill the
+	// rightmost leaf and trigger the split chain.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("C4 CONFIRMED: panic during insert on reloaded tree: %v\n"+
+				"inner split accessed nil childNodes (lazy-loaded children not materialized)", r)
+		}
+	}()
+
+	// Insert 100 more sequential keys — enough to trigger multiple leaf splits
+	for i := fullInnerKeys; i < fullInnerKeys+100; i++ {
+		tree2.Set(fmt.Appendf(nil, "c4k%05d", i), fmt.Appendf(nil, "v%05d", i))
+	}
+
+	// If we reach here without panic, verify data integrity
+	_, _, err = tree2.SaveVersion()
+	if err != nil {
+		t.Fatalf("SaveVersion after insert: %v", err)
+	}
+
+	// All keys should be retrievable
+	for i := 0; i < fullInnerKeys+100; i++ {
+		val, err := tree2.Get(fmt.Appendf(nil, "c4k%05d", i))
+		if err != nil {
+			t.Fatalf("Get c4k%05d: %v", i, err)
+		}
+		if val == nil {
+			t.Fatalf("c4k%05d: value is nil", i)
+		}
+	}
+	t.Logf("all %d keys verified after reload + insert", fullInnerKeys+100)
+}
