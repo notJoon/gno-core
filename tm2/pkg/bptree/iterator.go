@@ -329,7 +329,11 @@ func NewIteratorWithNDB(imm *ImmutableTree, start, end []byte, ascending bool, m
 
 	version := imm.version
 	if ndb != nil && version > 0 {
-		ndb.incrVersionReaders(version)
+		if err := ndb.incrVersionReaders(version); err != nil {
+			// Version is being pruned here,
+			// return an exhausted iterator instead.
+			return &Iterator{start: start, end: end, ascending: ascending}
+		}
 	}
 
 	return newIterator(imm.root, start, end, ascending, ndb, version)

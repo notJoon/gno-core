@@ -24,6 +24,8 @@ type nodeDB struct {
 	latestVersion  int64
 	firstVersion   int64
 	versionReaders map[int64]uint32
+	pruningFrom    int64 // nonzero while pruning is in progress
+	pruningTo      int64
 
 	isCommitting bool
 	logger       Logger
@@ -287,10 +289,14 @@ func (ndb *nodeDB) discoverVersions() error {
 
 // --- Version readers ---
 
-func (ndb *nodeDB) incrVersionReaders(version int64) {
+func (ndb *nodeDB) incrVersionReaders(version int64) error {
 	ndb.mtx.Lock()
 	defer ndb.mtx.Unlock()
+	if ndb.pruningFrom > 0 && version >= ndb.pruningFrom && version <= ndb.pruningTo {
+		return fmt.Errorf("%w: version %d", ErrVersionBeingPruned, version)
+	}
 	ndb.versionReaders[version]++
+	return nil
 }
 
 func (ndb *nodeDB) decrVersionReaders(version int64) {
@@ -304,10 +310,27 @@ func (ndb *nodeDB) decrVersionReaders(version int64) {
 	}
 }
 
-func (ndb *nodeDB) hasVersionReaders(version int64) bool {
+// beginPruning atomically checks that no version in [first, toVersion] has
+// active readers, then marks the range as being pruned. While the range is
+// marked, incrVersionReaders rejects new readers on those versions.
+func (ndb *nodeDB) beginPruning(first, toVersion int64) error {
 	ndb.mtx.Lock()
 	defer ndb.mtx.Unlock()
-	return ndb.versionReaders[version] > 0
+	for v := first; v <= toVersion; v++ {
+		if ndb.versionReaders[v] > 0 {
+			return fmt.Errorf("%w: version %d", ErrActiveReaders, v)
+		}
+	}
+	ndb.pruningFrom = first
+	ndb.pruningTo = toVersion
+	return nil
+}
+
+func (ndb *nodeDB) endPruning() {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
+	ndb.pruningFrom = 0
+	ndb.pruningTo = 0
 }
 
 // --- Commit coordination ---

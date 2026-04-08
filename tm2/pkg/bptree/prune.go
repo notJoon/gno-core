@@ -17,11 +17,16 @@ func (t *MutableTree) PruneVersionsTo(toVersion int64) error {
 		return fmt.Errorf("cannot prune latest version %d", latest)
 	}
 
-	// Check for active readers
-	for v := first; v <= toVersion; v++ {
-		if t.ndb.hasVersionReaders(v) {
-			return fmt.Errorf("%w: version %d", ErrActiveReaders, v)
-		}
+	// Atomically check for active readers and mark the range as pruning.
+	// While marked, new readers on these versions are rejected.
+	if err := t.ndb.beginPruning(first, toVersion); err != nil {
+		return err
+	}
+	defer t.ndb.endPruning()
+
+	// Test-only hook: called after reader check, before deletion.
+	if t.afterReaderCheck != nil {
+		t.afterReaderCheck()
 	}
 
 	for v := first; v <= toVersion; v++ {

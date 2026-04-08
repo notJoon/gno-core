@@ -29,7 +29,9 @@ func (t *ImmutableTree) Export(ndb *nodeDB) (*Exporter, error) {
 	}
 
 	if ndb != nil {
-		ndb.incrVersionReaders(t.version)
+		if err := ndb.incrVersionReaders(t.version); err != nil {
+			return nil, err
+		}
 	}
 
 	e := &Exporter{

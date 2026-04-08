@@ -23,6 +23,11 @@ type MutableTree struct {
 	// In-memory value store for Phase 2 compat (no ndb).
 	// Maps SHA256(value) hex -> raw value bytes.
 	memValues map[Hash][]byte
+
+	// afterReaderCheck is a test-only hook called after the version reader
+	// check in PruneVersionsTo, before the actual deletion begins.
+	// Used to inject concurrent readers to reproduce TOCTOU races.
+	afterReaderCheck func()
 }
 
 // NewMutableTreeMem creates an in-memory MutableTree (no DB).
@@ -402,11 +407,10 @@ func (t *MutableTree) DeleteVersionsFrom(fromVersion int64) error {
 	if latest < fromVersion {
 		return nil
 	}
-	for v := fromVersion; v <= latest; v++ {
-		if t.ndb.hasVersionReaders(v) {
-			return fmt.Errorf("%w: version %d", ErrActiveReaders, v)
-		}
+	if err := t.ndb.beginPruning(fromVersion, latest); err != nil {
+		return err
 	}
+	defer t.ndb.endPruning()
 	// Delete node data for all target versions via range scan.
 	if err := t.ndb.DeleteNodesFrom(fromVersion, latest); err != nil {
 		return err

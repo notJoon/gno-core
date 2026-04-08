@@ -389,6 +389,62 @@ func TestPrune_IteratorBlocksPruning(t *testing.T) {
 	}
 }
 
+// TestPrune_TOCTOU_ReaderRejectedDuringPrune verifies that the TOCTOU gap
+// between version reader check and deletion is closed. The afterReaderCheck
+// hook fires after beginPruning marks the range but before deletion starts.
+// An iterator created in this window must be rejected (exhausted), proving
+// that new readers cannot slip in after the check.
+func TestPrune_TOCTOU_ReaderRejectedDuringPrune(t *testing.T) {
+	tree := newPruneTree(t)
+
+	// V1: insert keys
+	for i := 0; i < 50; i++ {
+		tree.Set(fmt.Appendf(nil, "tc%03d", i), fmt.Appendf(nil, "val%03d", i))
+	}
+	tree.SaveVersion()
+
+	// V2: update some keys so V1 has orphaned nodes
+	for i := 0; i < 20; i++ {
+		tree.Set(fmt.Appendf(nil, "tc%03d", i), []byte("v2"))
+	}
+	tree.SaveVersion()
+
+	// Try to create an iterator in the TOCTOU gap via the hook.
+	var itr *Iterator
+	tree.afterReaderCheck = func() {
+		// This runs after beginPruning marks versions [1,1] as pruning.
+		// incrVersionReaders should reject the registration.
+		imm, err := tree.GetImmutable(1)
+		if err != nil {
+			t.Errorf("GetImmutable(1) in hook: %v", err)
+			return
+		}
+		itr = NewIteratorWithNDB(imm, nil, nil, true, tree)
+	}
+
+	err := tree.DeleteVersionsTo(1)
+	tree.afterReaderCheck = nil
+
+	// Pruning should succeed — no real reader was registered.
+	if err != nil {
+		if itr != nil {
+			itr.Close()
+		}
+		t.Fatalf("pruning should succeed (no real reader): %v", err)
+	}
+
+	// The iterator created during pruning must be exhausted (not valid)
+	// because incrVersionReaders rejected the registration.
+	if itr == nil {
+		t.Fatalf("hook should have created an iterator")
+	}
+	defer itr.Close()
+
+	if itr.Valid() {
+		t.Fatalf("iterator should be exhausted — version was being pruned")
+	}
+}
+
 func TestPrune_EmptyVersions(t *testing.T) {
 	tree := newPruneTree(t)
 
