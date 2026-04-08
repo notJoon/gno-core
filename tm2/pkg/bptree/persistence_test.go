@@ -535,6 +535,63 @@ func TestPersistence_LoadVersionForOverwriting(t *testing.T) {
 	}
 }
 
+func TestLoadVersionForOverwriting_CleansNodes(t *testing.T) {
+	db := memdb.NewMemDB()
+	tree := NewMutableTreeWithDB(db, 1000, NewNopLogger())
+
+	// V1: 30 keys
+	for i := 0; i < 30; i++ {
+		tree.Set(fmt.Appendf(nil, "ow_base%03d", i), []byte("v1"))
+	}
+	tree.SaveVersion()
+	nodesAfterV1 := countDBEntriesByPrefix(db, PrefixNode)
+
+	// V2: add 30 unique keys
+	for i := 30; i < 60; i++ {
+		tree.Set(fmt.Appendf(nil, "ow_new2_%03d", i), []byte("v2"))
+	}
+	tree.SaveVersion()
+
+	// V3: add 30 more unique keys
+	for i := 60; i < 90; i++ {
+		tree.Set(fmt.Appendf(nil, "ow_new3_%03d", i), []byte("v3"))
+	}
+	tree.SaveVersion()
+
+	nodesBeforeOverwrite := countDBEntriesByPrefix(db, PrefixNode)
+
+	err := tree.LoadVersionForOverwriting(1)
+	if err != nil {
+		t.Fatalf("LoadVersionForOverwriting(1): %v", err)
+	}
+
+	nodesAfterOverwrite := countDBEntriesByPrefix(db, PrefixNode)
+
+	if nodesAfterOverwrite >= nodesBeforeOverwrite {
+		t.Errorf("LoadVersionForOverwriting did not clean node data\n"+
+			"  nodes before: %d\n"+
+			"  nodes after:  %d (unchanged!)",
+			nodesBeforeOverwrite, nodesAfterOverwrite)
+	}
+
+	// Should be close to v1-only count
+	t.Logf("nodes: v1-only=%d, before=%d, after=%d", nodesAfterV1, nodesBeforeOverwrite, nodesAfterOverwrite)
+
+	// V1 must still be accessible
+	if tree.Version() != 1 {
+		t.Fatalf("version = %d, want 1", tree.Version())
+	}
+	for i := 0; i < 30; i++ {
+		val, err := tree.Get(fmt.Appendf(nil, "ow_base%03d", i))
+		if err != nil {
+			t.Fatalf("Get ow_base%03d: %v", i, err)
+		}
+		if !bytes.Equal(val, []byte("v1")) {
+			t.Fatalf("ow_base%03d: got %q, want 'v1'", i, val)
+		}
+	}
+}
+
 func TestPersistence_DeleteVersionsFrom(t *testing.T) {
 	tree := newTestTree(t)
 	for i := 0; i < 5; i++ {
@@ -553,6 +610,133 @@ func TestPersistence_DeleteVersionsFrom(t *testing.T) {
 	if tree.VersionExists(3) || tree.VersionExists(4) || tree.VersionExists(5) {
 		t.Fatalf("versions 3-5 should be deleted")
 	}
+}
+
+func TestDeleteVersionsFrom_CleansNodes(t *testing.T) {
+	// Scenario:
+	//  1. Create 3 versions, each adding unique keys so new nodes are created.
+	//  2. Record DB node count after all versions are saved.
+	//  3. Call DeleteVersionsFrom(2) to delete versions 2 and 3.
+	//  4. Verify root refs for v2, v3 are removed (this already works).
+	//  5. Verify node count decreased — this FAILS on current code, proving the leak.
+	//  6. Verify version 1 is still fully accessible.
+	db := memdb.NewMemDB()
+	tree := NewMutableTreeWithDB(db, 1000, NewNopLogger())
+
+	// Version 1: 50 keys (shared baseline)
+	for i := 0; i < 50; i++ {
+		tree.Set(fmt.Appendf(nil, "h3base%03d", i), []byte("v1"))
+	}
+	_, v1, err := tree.SaveVersion()
+	if err != nil {
+		t.Fatalf("SaveVersion v1: %v", err)
+	}
+	if v1 != 1 {
+		t.Fatalf("expected version 1, got %d", v1)
+	}
+
+	// Record node count after v1
+	nodesAfterV1 := countDBEntriesByPrefix(db, PrefixNode)
+
+	// Version 2: add 50 unique keys (creates new leaf + inner nodes)
+	for i := 50; i < 100; i++ {
+		tree.Set(fmt.Appendf(nil, "h3new2_%03d", i), []byte("v2"))
+	}
+	_, v2, err := tree.SaveVersion()
+	if err != nil {
+		t.Fatalf("SaveVersion v2: %v", err)
+	}
+	if v2 != 2 {
+		t.Fatalf("expected version 2, got %d", v2)
+	}
+
+	// Version 3: add 50 more unique keys
+	for i := 100; i < 150; i++ {
+		tree.Set(fmt.Appendf(nil, "h3new3_%03d", i), []byte("v3"))
+	}
+	_, v3, err := tree.SaveVersion()
+	if err != nil {
+		t.Fatalf("SaveVersion v3: %v", err)
+	}
+	if v3 != 3 {
+		t.Fatalf("expected version 3, got %d", v3)
+	}
+
+	nodesBeforeDelete := countDBEntriesByPrefix(db, PrefixNode)
+	rootsBeforeDelete := countDBEntriesByPrefix(db, PrefixRoot)
+
+	t.Logf("before DeleteVersionsFrom(2): nodes=%d roots=%d (v1-only nodes=%d)",
+		nodesBeforeDelete, rootsBeforeDelete, nodesAfterV1)
+
+	// Nodes added by v2 and v3 must be > 0
+	newNodes := nodesBeforeDelete - nodesAfterV1
+	if newNodes <= 0 {
+		t.Fatalf("expected new nodes from v2/v3, got %d", newNodes)
+	}
+
+	// --- Delete versions 2 and 3 ---
+	err = tree.DeleteVersionsFrom(2)
+	if err != nil {
+		t.Fatalf("DeleteVersionsFrom(2): %v", err)
+	}
+
+	// Root refs should be deleted
+	rootsAfterDelete := countDBEntriesByPrefix(db, PrefixRoot)
+	if rootsAfterDelete != 1 {
+		t.Fatalf("expected 1 root ref (v1 only), got %d", rootsAfterDelete)
+	}
+
+	// --- Key assertion: node count must decrease ---
+	nodesAfterDelete := countDBEntriesByPrefix(db, PrefixNode)
+
+	t.Logf("after DeleteVersionsFrom(2): nodes=%d (expected ~%d, got %d)",
+		nodesAfterDelete, nodesAfterV1, nodesAfterDelete)
+
+	// If DeleteVersionsFrom properly cleaned nodes, the count should be
+	// close to the v1-only count. At minimum, it must be less than before.
+	if nodesAfterDelete >= nodesBeforeDelete {
+		t.Errorf("H3 CONFIRMED: DeleteVersionsFrom did not clean node data\n"+
+			"  nodes before delete: %d\n"+
+			"  nodes after delete:  %d (unchanged!)\n"+
+			"  leaked nodes:        %d\n"+
+			"  This is a storage leak — nodes from deleted versions remain in DB.",
+			nodesBeforeDelete, nodesAfterDelete, nodesAfterDelete-nodesAfterV1)
+	}
+
+	// Version 1 must still be fully accessible
+	tree2 := NewMutableTreeWithDB(db, 1000, NewNopLogger())
+	loadedV, err := tree2.LoadVersion(1)
+	if err != nil {
+		t.Fatalf("LoadVersion(1) after delete: %v", err)
+	}
+	if loadedV != 1 {
+		t.Fatalf("loaded version = %d, want 1", loadedV)
+	}
+	if tree2.Size() != 50 {
+		t.Fatalf("v1 size = %d, want 50", tree2.Size())
+	}
+	for i := 0; i < 50; i++ {
+		val, err := tree2.Get(fmt.Appendf(nil, "h3base%03d", i))
+		if err != nil {
+			t.Fatalf("Get h3base%03d: %v", i, err)
+		}
+		if !bytes.Equal(val, []byte("v1")) {
+			t.Fatalf("h3base%03d: got %q, want 'v1'", i, val)
+		}
+	}
+}
+
+// countDBEntriesByPrefix counts all DB entries with the given single-byte prefix.
+func countDBEntriesByPrefix(db *memdb.MemDB, prefix byte) int {
+	count := 0
+	start := []byte{prefix}
+	end := []byte{prefix + 1}
+	itr, _ := db.Iterator(start, end)
+	defer itr.Close()
+	for ; itr.Valid(); itr.Next() {
+		count++
+	}
+	return count
 }
 
 func TestPersistence_VersionReaders_BlockPruning(t *testing.T) {

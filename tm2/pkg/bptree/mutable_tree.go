@@ -314,12 +314,13 @@ func (t *MutableTree) LoadVersion(version int64) (int64, error) {
 	return version, nil
 }
 
-// LoadVersionForOverwriting loads a version and deletes all newer versions.
+// LoadVersionForOverwriting loads a version and deletes all newer versions,
+// including their node data.
 func (t *MutableTree) LoadVersionForOverwriting(version int64) error {
 	if t.ndb == nil {
 		return nil
 	}
-	// Remember the old latest version before LoadVersion overwrites it
+	// Capture latest before LoadVersion overwrites it.
 	oldLatest := t.ndb.getLatestVersion()
 
 	_, err := t.LoadVersion(version)
@@ -327,19 +328,9 @@ func (t *MutableTree) LoadVersionForOverwriting(version int64) error {
 		return err
 	}
 
-	// Delete all versions after the target, using the old latest as the upper bound
-	for v := version + 1; v <= oldLatest; v++ {
-		if t.ndb.VersionExists(v) {
-			if err := t.ndb.DeleteRoot(v); err != nil {
-				return err
-			}
-		}
-	}
-	if err := t.ndb.Commit(); err != nil {
-		return err
-	}
-	t.ndb.setLatestVersion(version)
-	return nil
+	// Temporarily restore so DeleteVersionsFrom sees the full range.
+	t.ndb.setLatestVersion(oldLatest)
+	return t.DeleteVersionsFrom(version + 1)
 }
 
 // loadNode loads a node from the DB. Children are loaded lazily via
@@ -401,18 +392,26 @@ func (t *MutableTree) DeleteVersionsTo(toVersion int64) error {
 	return t.PruneVersionsTo(toVersion)
 }
 
-// DeleteVersionsFrom deletes all versions >= fromVersion.
-// Stub for Phase 3.
+// DeleteVersionsFrom deletes all versions >= fromVersion, including
+// both root references and the underlying node data.
 func (t *MutableTree) DeleteVersionsFrom(fromVersion int64) error {
 	if t.ndb == nil {
 		return nil
 	}
 	latest := t.ndb.getLatestVersion()
+	if latest < fromVersion {
+		return nil
+	}
 	for v := fromVersion; v <= latest; v++ {
 		if t.ndb.hasVersionReaders(v) {
 			return fmt.Errorf("%w: version %d", ErrActiveReaders, v)
 		}
 	}
+	// Delete node data for all target versions via range scan.
+	if err := t.ndb.DeleteNodesFrom(fromVersion, latest); err != nil {
+		return err
+	}
+	// Delete root references.
 	for v := fromVersion; v <= latest; v++ {
 		if t.ndb.VersionExists(v) {
 			if err := t.ndb.DeleteRoot(v); err != nil {
@@ -423,9 +422,7 @@ func (t *MutableTree) DeleteVersionsFrom(fromVersion int64) error {
 	if err := t.ndb.Commit(); err != nil {
 		return err
 	}
-	if fromVersion <= latest {
-		t.ndb.setLatestVersion(fromVersion - 1)
-	}
+	t.ndb.setLatestVersion(fromVersion - 1)
 	return nil
 }
 

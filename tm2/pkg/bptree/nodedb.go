@@ -376,3 +376,34 @@ func (ndb *nodeDB) DeleteNode(nkBytes []byte) error {
 	}
 	return ndb.batch.Delete(nodeDBKey(nkBytes))
 }
+
+// DeleteNodesFrom deletes all node entries whose NodeKey.Version is in
+// [fromVersion, toVersion] using a DB range scan. This exploits the fact
+// that NodeKey serializes version as the first 8 big-endian bytes, so
+// lexicographic range covers exactly the target versions.
+func (ndb *nodeDB) DeleteNodesFrom(fromVersion, toVersion int64) error {
+	start := make([]byte, 1+8)
+	start[0] = PrefixNode
+	binary.BigEndian.PutUint64(start[1:], uint64(fromVersion))
+
+	end := make([]byte, 1+8)
+	end[0] = PrefixNode
+	binary.BigEndian.PutUint64(end[1:], uint64(toVersion+1))
+
+	itr, err := ndb.db.Iterator(start, end)
+	if err != nil {
+		return fmt.Errorf("DeleteNodesFrom iterator: %w", err)
+	}
+	defer itr.Close()
+
+	for ; itr.Valid(); itr.Next() {
+		key := itr.Key()
+		if ndb.nodeCache != nil && len(key) > 1 {
+			ndb.nodeCache.Remove(string(key[1:])) // strip PrefixNode
+		}
+		if err := ndb.batch.Delete(key); err != nil {
+			return err
+		}
+	}
+	return itr.Error()
+}
