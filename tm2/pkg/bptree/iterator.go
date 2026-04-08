@@ -318,12 +318,21 @@ func (it *Iterator) Close() error {
 
 // NewIteratorWithNDB creates an iterator over an immutable tree with value
 // resolution via the mutable tree's nodeDB. Used by the store wrapper.
+//
+// Registers as a version reader so that pruning cannot delete nodes while
+// the iterator is active.
 func NewIteratorWithNDB(imm *ImmutableTree, start, end []byte, ascending bool, mtree *MutableTree) *Iterator {
 	var ndb *nodeDB
 	if mtree != nil {
 		ndb = mtree.ndb
 	}
-	return newIterator(imm.root, start, end, ascending, ndb, 0)
+
+	version := imm.version
+	if ndb != nil && version > 0 {
+		ndb.incrVersionReaders(version)
+	}
+
+	return newIterator(imm.root, start, end, ascending, ndb, version)
 }
 
 // Iterator returns an iterator over [start, end) in the given direction.

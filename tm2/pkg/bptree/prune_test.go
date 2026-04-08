@@ -334,6 +334,61 @@ func countDBNodes(db *memdb.MemDB) int {
 	return count
 }
 
+func TestPrune_IteratorBlocksPruning(t *testing.T) {
+	tree := newPruneTree(t)
+
+	// V1: insert keys
+	for i := 0; i < 50; i++ {
+		tree.Set(fmt.Appendf(nil, "it%03d", i), fmt.Appendf(nil, "val%03d", i))
+	}
+	tree.SaveVersion()
+
+	// V2: update some keys so V1 has unique nodes that pruning would delete
+	for i := 0; i < 20; i++ {
+		tree.Set(fmt.Appendf(nil, "it%03d", i), []byte("v2"))
+	}
+	tree.SaveVersion()
+
+	// Get an ImmutableTree for V1 and create an iterator (same path as store layer)
+	imm, err := tree.GetImmutable(1)
+	if err != nil {
+		t.Fatalf("GetImmutable(1): %v", err)
+	}
+	itr := NewIteratorWithNDB(imm, nil, nil, true, tree)
+	defer itr.Close()
+
+	if !itr.Valid() {
+		t.Fatalf("iterator should be valid")
+	}
+
+	// Pruning must fail — iterator is an active reader on V1
+	err = tree.DeleteVersionsTo(1)
+	if err == nil {
+		t.Fatalf("pruning should be blocked by active iterator")
+	}
+
+	// Iterator should still function normally while pruning is blocked
+	keysRead := 0
+	for itr.Valid() {
+		_ = itr.Key()
+		_ = itr.Value()
+		itr.Next()
+		keysRead++
+	}
+	if keysRead != 50 {
+		t.Fatalf("iterator read %d keys, want 50", keysRead)
+	}
+
+	// Close iterator — releases version reader
+	itr.Close()
+
+	// Pruning should now succeed
+	err = tree.DeleteVersionsTo(1)
+	if err != nil {
+		t.Fatalf("prune after iterator close should succeed: %v", err)
+	}
+}
+
 func TestPrune_EmptyVersions(t *testing.T) {
 	tree := newPruneTree(t)
 
