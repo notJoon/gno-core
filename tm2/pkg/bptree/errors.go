@@ -12,4 +12,5 @@ var (
 	ErrEmptyTree           = errors.New("tree is empty")
 	ErrActiveReaders       = errors.New("version has active readers")
 	ErrVersionBeingPruned  = errors.New("version is being pruned")
+	ErrNoCommittedState    = errors.New("no committed state: call SaveVersion before generating proofs")
 )
