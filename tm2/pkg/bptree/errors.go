@@ -11,4 +11,5 @@ var (
 	ErrNodeMissingNodeKey  = errors.New("node missing node key")
 	ErrEmptyTree           = errors.New("tree is empty")
 	ErrActiveReaders       = errors.New("version has active readers")
+	ErrNoCommittedState    = errors.New("no committed state: call SaveVersion before generating proofs")
 )
