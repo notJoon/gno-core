@@ -18,9 +18,9 @@ import (
 const testPrefix = "// @test:"
 
 var (
-	outputRegex  = regexp.MustCompile(`(?m)^// Output:$([\s\S]*?)(?:^(?://\s*$|// Error:|$))`)
-	errorRegex   = regexp.MustCompile(`(?m)^// Error:$([\s\S]*?)(?:^(?://\s*$|// Output:|$))`)
-	optionRegex  = regexp.MustCompile(`@(\w+)(?:="([^"]*)")?`)
+	outputRegex = regexp.MustCompile(`(?m)^// Output:$([\s\S]*?)(?:^(?://\s*$|// Error:|$))`)
+	errorRegex  = regexp.MustCompile(`(?m)^// Error:$([\s\S]*?)(?:^(?://\s*$|// Output:|$))`)
+	optionRegex = regexp.MustCompile(`@(\w+)(?:="([^"]*)")?`)
 )
 
 // codeBlock represents a block of code extracted from the input text.
@@ -152,9 +152,7 @@ func cleanSection(section string) (string, error) {
 
 		// Remove the "//" prefix and at most one leading space.
 		line := strings.TrimPrefix(trimmed, "//")
-		if strings.HasPrefix(line, " ") {
-			line = line[1:]
-		}
+		line = strings.TrimPrefix(line, " ")
 
 		cleanedLines = append(cleanedLines, line)
 	}
@@ -177,8 +175,8 @@ func generateCodeBlockName(content string, expectedOutput string) string {
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(strings.TrimSpace(line), testPrefix) {
-			return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), testPrefix))
+		if after, ok := strings.CutPrefix(strings.TrimSpace(line), testPrefix); ok {
+			return strings.TrimSpace(after)
 		}
 	}
 

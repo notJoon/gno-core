@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	optIgnore     = "ignore"       // Do not run the code block
+	optIgnore      = "ignore"       // Do not run the code block
 	optShouldPanic = "should_panic" // Expect a panic
 	gnoLang        = "gno"
-	gnoDoctest     = "gnodoctest"   // Alternative tag for GitHub syntax highlighting (e.g. "go,gnodoctest")
+	gnoDoctest     = "gnodoctest" // Alternative tag for GitHub syntax highlighting (e.g. "go,gnodoctest")
 )
 
 // isGnoDoctest checks if the language tag contains "gnodoctest",
@@ -121,7 +121,6 @@ func ExecuteMatchingCodeBlock(
 
 	return results, nil
 }
-
 
 func handlePanicMessage(err error, panicMessage string) (string, error) {
 	if err == nil {
@@ -240,4 +239,3 @@ func replacePackagePath(input string) string {
 func GetStdlibsDir() string {
 	return filepath.Join(gnoenv.RootDir(), "gnovm", "stdlibs")
 }
-
