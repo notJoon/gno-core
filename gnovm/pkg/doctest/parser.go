@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -12,204 +11,178 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
-const testPrefix = "// @test:"
-
-var (
-	outputRegex = regexp.MustCompile(`(?m)^// Output:$([\s\S]*?)(?:^(?://\s*$|// Error:|$))`)
-	errorRegex  = regexp.MustCompile(`(?m)^// Error:$([\s\S]*?)(?:^(?://\s*$|// Output:|$))`)
-	optionRegex = regexp.MustCompile(`@(\w+)(?:="([^"]*)")?`)
+// Directive names recognized in code-block comments. The grammar
+// follows filetest (`gnovm/pkg/test/filetest.go`):
+//
+//   - PascalCase markers (Output, Error) start a multiline section
+//     captured from following `// xxx` comment lines until the next
+//     section marker, a bare `//`, or any non-comment line.
+//   - ALLCAPS keys (NAME, IGNORE, SHOULD_PANIC) are single-line:
+//     `KEY:` for a flag, `KEY: value` for a value.
+const (
+	directiveOutput      = "Output"
+	directiveError       = "Error"
+	directiveName        = "NAME"
+	directiveIgnore      = "IGNORE"
+	directiveShouldPanic = "SHOULD_PANIC"
 )
 
-// codeBlock represents a block of code extracted from the input text.
 type codeBlock struct {
-	content        string // The content of the code block.
-	lang           string // The language type of the code block.
-	index          int    // The index of the code block in the sequence of extracted blocks.
-	expectedOutput string // The expected output of the code block.
-	expectedError  string // The expected error of the code block.
-	name           string // The name of the code block.
+	content        string
+	lang           string
+	index          int
+	expectedOutput string
+	expectedError  string
+	name           string
 	options        ExecutionOptions
 }
 
-// GetCodeBlocks parses the provided markdown text to extract all embedded code blocks.
-// It returns a slice of codeBlock structs, each representing a distinct block of code found in the markdown.
+type ExecutionOptions struct {
+	Ignore       bool
+	ShouldPanic  bool
+	PanicMessage string
+}
+
+// GetCodeBlocks parses markdown text and returns every fenced code
+// block, with directives and options resolved.
 func GetCodeBlocks(body string) ([]codeBlock, error) {
 	md := goldmark.New()
-	reader := text.NewReader([]byte(body))
-	doc := md.Parser().Parse(reader)
+	doc := md.Parser().Parse(text.NewReader([]byte(body)))
 
-	var codeBlocks []codeBlock
+	var blocks []codeBlock
 	if err := mast.Walk(doc, func(n mast.Node, entering bool) (mast.WalkStatus, error) {
-		if entering {
-			if cb, ok := n.(*mast.FencedCodeBlock); ok {
-				codeBlock, err := createCodeBlock(cb, body, len(codeBlocks))
-				if err != nil {
-					return mast.WalkStop, err
-				}
-				codeBlock.name = codeBlockName(codeBlock.content, codeBlock.index)
-				codeBlocks = append(codeBlocks, codeBlock)
-			}
+		if !entering {
+			return mast.WalkContinue, nil
 		}
+		cb, ok := n.(*mast.FencedCodeBlock)
+		if !ok {
+			return mast.WalkContinue, nil
+		}
+		blocks = append(blocks, buildCodeBlock(cb, body, len(blocks)))
 		return mast.WalkContinue, nil
 	}); err != nil {
 		return nil, err
 	}
-
-	return codeBlocks, nil
+	return blocks, nil
 }
 
-// createCodeBlock creates a CodeBlock from a code block node.
-func createCodeBlock(node *mast.FencedCodeBlock, body string, index int) (codeBlock, error) {
+func buildCodeBlock(node *mast.FencedCodeBlock, body string, index int) codeBlock {
 	var buf bytes.Buffer
 	lines := node.Lines()
 	for i := 0; i < lines.Len(); i++ {
 		line := lines.At(i)
-		buf.Write([]byte(body[line.Start:line.Stop]))
+		buf.WriteString(body[line.Start:line.Stop])
 	}
-
 	content := buf.String()
+
 	language := string(node.Language([]byte(body)))
 	if language == "" {
 		language = "plain"
 	}
 
-	options := parseExecutionOptions(language, content)
-
-	expectedOutput, expectedError, err := parseExpectedResults(content)
-	if err != nil {
-		return codeBlock{}, err
+	meta := parseBlockMetadata(content)
+	if meta.name == "" {
+		meta.name = fmt.Sprintf("block_%d", index)
 	}
-
 	return codeBlock{
 		content:        content,
 		lang:           language,
 		index:          index,
-		expectedOutput: expectedOutput,
-		expectedError:  expectedError,
-		options:        options,
-	}, nil
+		expectedOutput: meta.output,
+		expectedError:  meta.errOutput,
+		name:           meta.name,
+		options:        meta.options,
+	}
 }
 
-// parseExpectedResults scans the code block content for expecting outputs and errors,
-// which are typically indicated by special comments in the code.
-func parseExpectedResults(content string) (string, string, error) {
-	var outputs, errors []string
-
-	outputMatches := outputRegex.FindAllStringSubmatch(content, -1)
-	for _, match := range outputMatches {
-		if len(match) > 1 {
-			cleaned, err := cleanSection(match[1])
-			if err != nil {
-				return "", "", err
-			}
-			if cleaned != "" {
-				outputs = append(outputs, cleaned)
-			}
-		}
-	}
-
-	errorMatches := errorRegex.FindAllStringSubmatch(content, -1)
-	for _, match := range errorMatches {
-		if len(match) > 1 {
-			cleaned, err := cleanSection(match[1])
-			if err != nil {
-				return "", "", err
-			}
-			if cleaned != "" {
-				errors = append(errors, cleaned)
-			}
-		}
-	}
-
-	expectedOutput := strings.Join(outputs, "\n")
-	expectedError := strings.Join(errors, "\n")
-
-	return expectedOutput, expectedError, nil
+type blockMetadata struct {
+	name      string
+	output    string
+	errOutput string
+	options   ExecutionOptions
 }
 
-func cleanSection(section string) (string, error) {
-	scanner := bufio.NewScanner(strings.NewReader(section))
-	var cleanedLines []string
+type sectionState int
 
+const (
+	sectionNone sectionState = iota
+	sectionOutput
+	sectionError
+)
+
+// parseBlockMetadata walks the block once, dispatching directive
+// lines and capturing Output/Error sections.
+func parseBlockMetadata(content string) blockMetadata {
+	var (
+		meta    blockMetadata
+		outputs []string
+		errors  []string
+	)
+	state := sectionNone
+
+	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
-		raw := scanner.Text()
-		trimmed := strings.TrimSpace(raw)
-
-		// Skip lines that are not comment lines.
+		trimmed := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(trimmed, "//") {
+			state = sectionNone
+			continue
+		}
+		body := strings.TrimPrefix(trimmed, "//")
+		bodyTrim := strings.TrimSpace(body)
+		if bodyTrim == "" {
+			state = sectionNone
 			continue
 		}
 
-		// Remove the "//" prefix and at most one leading space.
-		line := strings.TrimPrefix(trimmed, "//")
-		line = strings.TrimPrefix(line, " ")
-
-		cleanedLines = append(cleanedLines, line)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("failed to clean section: %w", err)
-	}
-
-	return strings.Join(cleanedLines, "\n"), nil
-}
-
-// codeBlockName returns the explicit name set with `// @test: <name>`,
-// or a positional fallback name when none is provided.
-func codeBlockName(content string, index int) string {
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	for scanner.Scan() {
-		if after, ok := strings.CutPrefix(strings.TrimSpace(scanner.Text()), testPrefix); ok {
-			if name := strings.TrimSpace(after); name != "" {
-				return name
-			}
-		}
-	}
-	return fmt.Sprintf("block_%d", index)
-}
-
-//////////////////// Execution Options ////////////////////
-
-type ExecutionOptions struct {
-	Ignore       bool
-	PanicMessage string
-	// TODO: add more options
-}
-
-func parseExecutionOptions(language string, content string) ExecutionOptions {
-	var options ExecutionOptions
-
-	// Skip the first part, which is the language itself.
-	// Remaining tags may set Ignore; should_panic requires a message
-	// from an in-code directive below, so it is not handled here.
-	parts := strings.Split(language, ",")
-	for _, option := range parts[1:] {
-		if strings.TrimSpace(option) == optIgnore {
-			options.Ignore = true
-		}
-	}
-
-	// Scan all comment lines for @ directives.
-	// e.g. // @should_panic="some panic message here"
-	//        |-option name-||-----option value-----|
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	for scanner.Scan() {
-		line := []byte(strings.TrimSpace(scanner.Text()))
-		if !bytes.HasPrefix(line, []byte("//")) {
-			continue
-		}
-		matches := optionRegex.FindAllSubmatch(line, -1)
-		for _, match := range matches {
-			switch string(match[1]) {
-			case optShouldPanic:
-				if match[2] != nil {
-					options.PanicMessage = string(match[2])
+		if name, value, ok := parseDirective(bodyTrim); ok {
+			switch name {
+			case directiveOutput:
+				state = sectionOutput
+			case directiveError:
+				state = sectionError
+			case directiveName:
+				if value != "" {
+					meta.name = value
 				}
-			case optIgnore:
-				options.Ignore = true
+			case directiveIgnore:
+				meta.options.Ignore = true
+			case directiveShouldPanic:
+				meta.options.ShouldPanic = true
+				if value != "" {
+					meta.options.PanicMessage = value
+				}
 			}
+			continue
+		}
+
+		switch state {
+		case sectionOutput:
+			outputs = append(outputs, strings.TrimPrefix(body, " "))
+		case sectionError:
+			errors = append(errors, strings.TrimPrefix(body, " "))
 		}
 	}
 
-	return options
+	meta.output = strings.Join(outputs, "\n")
+	meta.errOutput = strings.Join(errors, "\n")
+	return meta
+}
+
+// parseDirective recognizes a comment body of the form `KEY:` or
+// `KEY: value` where KEY is one of the known directives.
+func parseDirective(s string) (name, value string, ok bool) {
+	key, val, hasColon := strings.Cut(s, ":")
+	if !hasColon || !isDirective(key) {
+		return "", "", false
+	}
+	return key, strings.TrimSpace(val), true
+}
+
+func isDirective(k string) bool {
+	switch k {
+	case directiveOutput, directiveError,
+		directiveName, directiveIgnore, directiveShouldPanic:
+		return true
+	}
+	return false
 }

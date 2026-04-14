@@ -21,7 +21,7 @@ This document contains two simple examples written in Go.
 The first example prints the first 10 numbers of the Fibonacci sequence.
 
 ` + "```gno" + `
-// @test: Fibonacci
+// NAME:Fibonacci
 package main
 
 func main() {
@@ -38,7 +38,7 @@ func main() {
 The second example reverses a given string and prints it.
 
 ` + "```gno" + `
-// @test: StringReversal
+// NAME:StringReversal
 package main
 
 func main() {
@@ -55,7 +55,7 @@ These two examples demonstrate basic Go functionality without using concurrency,
 
 ` + "## Chain Runtime Package" + `
 ` + "```gno" + `
-// @test: ChainRuntime
+// NAME:ChainRuntime
 package main
 
 import (

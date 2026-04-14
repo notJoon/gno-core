@@ -17,9 +17,7 @@ import (
 )
 
 const (
-	optIgnore      = "ignore"
-	optShouldPanic = "should_panic"
-	gnoLang        = "gno"
+	gnoLang = "gno"
 	// gnoDoctest is an alternate tag so authors can write "go,gnodoctest"
 	// and still get GitHub syntax highlighting for Gno code.
 	gnoDoctest = "gnodoctest"
@@ -56,7 +54,7 @@ func ExecuteCodeBlock(c codeBlock, rootDir string) (string, error) {
 func executeBlock(c codeBlock, baseStore storetypes.CommitStore, gnoStore gno.Store) (string, error) {
 	output, runErr := runGnoBlock(c, baseStore, gnoStore)
 
-	if c.options.PanicMessage != "" {
+	if c.options.ShouldPanic {
 		return handlePanicMessage(runErr, c.options.PanicMessage)
 	}
 	if runErr != nil {
@@ -164,22 +162,19 @@ func ExecuteMatchingCodeBlock(
 	return results, nil
 }
 
+// handlePanicMessage validates a should_panic block. An empty
+// panicMessage matches any panic.
 func handlePanicMessage(err error, panicMessage string) (string, error) {
 	if err == nil {
-		return "", fmt.Errorf(
-			"expected panic with message: %s, but executed successfully",
-			panicMessage,
-		)
+		if panicMessage == "" {
+			return "", errors.New("expected a panic, but executed successfully")
+		}
+		return "", fmt.Errorf("expected panic with message: %s, but executed successfully", panicMessage)
 	}
-
-	if strings.Contains(err.Error(), panicMessage) {
+	if panicMessage == "" || strings.Contains(err.Error(), panicMessage) {
 		return fmt.Sprintf("panicked as expected: %v", err), nil
 	}
-
-	return "", fmt.Errorf(
-		"expected panic with message: %s, but got: %s",
-		panicMessage, err.Error(),
-	)
+	return "", fmt.Errorf("expected panic with message: %s, but got: %s", panicMessage, err.Error())
 }
 
 func compareResults(actual, expectedOutput, expectedError string) (string, error) {

@@ -1,6 +1,7 @@
 package doctest
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -79,11 +80,10 @@ func TestGetCodeBlocks(t *testing.T) {
 
 func TestParseExpectedResults(t *testing.T) {
 	tests := []struct {
-		name           string
-		content        string
-		wantOutput     string
-		wantError      string
-		wantParseError bool
+		name       string
+		content    string
+		wantOutput string
+		wantError  string
 	}{
 		{
 			name: "Basic output",
@@ -94,7 +94,6 @@ fmt.Println("Hello, World!")
 // Hello, World!
 `,
 			wantOutput: "Hello, World!",
-			wantError:  "",
 		},
 		{
 			name: "Basic error",
@@ -104,8 +103,7 @@ panic("oops")
 // Error:
 // panic: oops
 `,
-			wantOutput: "",
-			wantError:  "panic: oops",
+			wantError: "panic: oops",
 		},
 		{
 			name: "Output and error",
@@ -122,77 +120,62 @@ panic("oops")
 			wantError:  "panic: oops",
 		},
 		{
-			name: "Multiple output sections",
+			name: "Multiple lines in section",
 			content: `
-// First output
 fmt.Println("Hello")
 // Output:
 // Hello
 // World
 `,
 			wantOutput: "Hello\nWorld",
-			wantError:  "",
 		},
 		{
 			name: "Preserve indentation",
 			content: `
-// Indented output
 fmt.Println("  Indented")
 // Output:
 //   Indented
 `,
 			wantOutput: "  Indented",
-			wantError:  "",
 		},
 		{
 			name: "Output with // in content",
 			content: `
-// Output with //
 fmt.Println("// Comment")
 // Output:
 // // Comment
 `,
 			wantOutput: "// Comment",
-			wantError:  "",
 		},
 		{
-			name: "Empty content",
+			name: "No directive",
 			content: `
 // Just some comments
 // No output or error
 `,
-			wantOutput: "",
-			wantError:  "",
 		},
 		{
-			name: "simple code",
+			name: "Bare // ends section",
 			content: `
-package main
-
-func main() {
-	println("Actual output")
-}
 // Output:
-// Actual output
+// Hello
+//
+// not part of output
 `,
-			wantOutput: "Actual output",
+			wantOutput: "Hello",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotOutput, gotError, err := parseExpectedResults(tt.content)
-			if (err != nil) != tt.wantParseError {
-				t.Errorf("parseExpectedResults() error = %v, wantParseError %v", err, tt.wantParseError)
-				return
-			}
-			assert.Equal(t, tt.wantOutput, gotOutput)
-			assert.Equal(t, tt.wantError, gotError)
+			meta := parseBlockMetadata(tt.content)
+			assert.Equal(t, tt.wantOutput, meta.output)
+			assert.Equal(t, tt.wantError, meta.errOutput)
 		})
 	}
 }
 
-func TestCodeBlockName(t *testing.T) {
+func TestParseBlockMetadataName(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
@@ -200,15 +183,13 @@ func TestCodeBlockName(t *testing.T) {
 		want    string
 	}{
 		{
-			name:    "explicit name via @test directive",
-			content: "// @test: my_test\npackage main",
-			index:   0,
+			name:    "explicit name via NAME directive",
+			content: "// NAME: my_test\npackage main",
 			want:    "my_test",
 		},
 		{
-			name:    "explicit name with leading indentation",
-			content: "package main\n    // @test:   trimmed   \nfunc main() {}",
-			index:   3,
+			name:    "NAME with surrounding whitespace",
+			content: "package main\n    // NAME:    trimmed   \nfunc main() {}",
 			want:    "trimmed",
 		},
 		{
@@ -218,8 +199,8 @@ func TestCodeBlockName(t *testing.T) {
 			want:    "block_2",
 		},
 		{
-			name:    "empty directive name falls back",
-			content: "// @test:\npackage main",
+			name:    "empty NAME falls back",
+			content: "// NAME:\npackage main",
 			index:   1,
 			want:    "block_1",
 		},
@@ -227,87 +208,86 @@ func TestCodeBlockName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, codeBlockName(tt.content, tt.index))
+			meta := parseBlockMetadata(tt.content)
+			got := meta.name
+			if got == "" {
+				got = fmt.Sprintf("block_%d", tt.index)
+			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestParseExecutionOptions(t *testing.T) {
 	tests := []struct {
-		name     string
-		language string
-		content  string
-		want     ExecutionOptions
+		name    string
+		content string
+		want    ExecutionOptions
 	}{
 		{
-			name:     "No options",
-			language: "go",
-			content:  "package main",
-			want:     ExecutionOptions{},
+			name:    "No options",
+			content: "package main",
+			want:    ExecutionOptions{},
 		},
 		{
-			name:     "Ignore option in language tag",
-			language: "go,ignore",
-			content:  "package main",
-			want:     ExecutionOptions{Ignore: true},
+			name:    "IGNORE directive",
+			content: "// IGNORE:\npackage main",
+			want:    ExecutionOptions{Ignore: true},
 		},
 		{
-			name:     "Should panic option in language tag",
-			language: "go,should_panic",
-			content:  "package main",
-			want:     ExecutionOptions{PanicMessage: ""},
+			name:    "SHOULD_PANIC without message",
+			content: "// SHOULD_PANIC:\npackage main",
+			want:    ExecutionOptions{ShouldPanic: true},
 		},
 		{
-			name:     "Should panic with message in comment",
-			language: "go,should_panic",
-			content:  "// @should_panic=\"division by zero\"",
-			want:     ExecutionOptions{PanicMessage: "division by zero"},
+			name:    "SHOULD_PANIC with message",
+			content: "// SHOULD_PANIC: division by zero\npackage main",
+			want:    ExecutionOptions{ShouldPanic: true, PanicMessage: "division by zero"},
 		},
 		{
-			name:     "Multiple options",
-			language: "go,ignore,should_panic",
-			content:  "// @should_panic=\"runtime error\"",
-			want:     ExecutionOptions{Ignore: true, PanicMessage: "runtime error"},
+			name:    "Multiple directives",
+			content: "// IGNORE:\n// SHOULD_PANIC: runtime error\npackage main",
+			want:    ExecutionOptions{Ignore: true, ShouldPanic: true, PanicMessage: "runtime error"},
 		},
 		{
-			name:     "Option on second line after @test",
-			language: "gno",
-			content:  "// @test: my_test\n// @should_panic=\"out of bounds\"",
-			want:     ExecutionOptions{PanicMessage: "out of bounds"},
+			name:    "Directive after NAME",
+			content: "// NAME: my_test\n// SHOULD_PANIC: out of bounds\n",
+			want:    ExecutionOptions{ShouldPanic: true, PanicMessage: "out of bounds"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseExecutionOptions(tt.language, tt.content)
-			assert.Equal(t, tt.want, got)
+			meta := parseBlockMetadata(tt.content)
+			assert.Equal(t, tt.want, meta.options)
 		})
 	}
 }
 
 func TestGetCodeBlocksWithOptions(t *testing.T) {
 	input := `
-Some text here
+` + "```gno" + `
+// IGNORE:
+package main
 
-` + "```go,ignore" + `
-// This block should be ignored
 func main() {
     panic("This should not execute")
 }
 ` + "```" + `
 
-Another paragraph
+` + "```gno" + `
+// SHOULD_PANIC: runtime error: index out of range
+package main
 
-` + "```go,should_panic" + `
-// @should_panic="runtime error: index out of range"
 func main() {
     arr := []int{1, 2, 3}
     fmt.Println(arr[5])
 }
 ` + "```" + `
 
-` + "```go" + `
-// Normal execution
+` + "```gno" + `
+package main
+
 func main() {
     fmt.Println("Hello, World!")
 }
@@ -321,8 +301,8 @@ func main() {
 
 	assert.Len(t, blocks, 3)
 	assert.True(t, blocks[0].options.Ignore)
+	assert.True(t, blocks[1].options.ShouldPanic)
 	assert.Equal(t, "runtime error: index out of range", blocks[1].options.PanicMessage)
-	assert.Equal(t, ExecutionOptions{}, blocks[2].options)
 	assert.Equal(t, ExecutionOptions{}, blocks[2].options)
 }
 

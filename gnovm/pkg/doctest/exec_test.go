@@ -135,6 +135,7 @@ func main() {
 }`,
 				lang: "gno",
 				options: ExecutionOptions{
+					ShouldPanic:  true,
 					PanicMessage: "Expected panic",
 				},
 			},
@@ -151,6 +152,7 @@ func main() {
 }`,
 				lang: "gno",
 				options: ExecutionOptions{
+					ShouldPanic:  true,
 					PanicMessage: "Expected panic",
 				},
 			},
@@ -167,6 +169,7 @@ func main() {
 }`,
 				lang: "gno",
 				options: ExecutionOptions{
+					ShouldPanic:  true,
 					PanicMessage: "Specific error message",
 				},
 			},
@@ -310,7 +313,7 @@ func TestExecuteMatchingCodeBlock(t *testing.T) {
 			content: `
 Some text here
 ` + "```gno" + `
-// @test: test1
+// NAME:test1
 package main
 
 func main() {
@@ -327,7 +330,7 @@ More text
 			name: "multiple matching blocks",
 			content: `
 ` + "```gno" + `
-// @test: test1
+// NAME:test1
 package main
 
 func main() {
@@ -335,7 +338,7 @@ func main() {
 }
 ` + "```" + `
 ` + "```gno" + `
-// @test: test2
+// NAME:test2
 package main
 
 func main() {
@@ -351,7 +354,7 @@ func main() {
 			name: "no matching blocks",
 			content: `
 ` + "```gno" + `
-// @test: test1
+// NAME:test1
 func main() {
     println("Hello")
 }
@@ -365,7 +368,7 @@ func main() {
 			name: "error in code block",
 			content: `
 ` + "```gno" + `
-// @test: error_test
+// NAME:error_test
 package main
 
 func main() {
@@ -380,7 +383,7 @@ func main() {
 			name: "expected output is nothing but actual output is something",
 			content: `
 ` + "```gno" + `
-// @test: foo
+// NAME:foo
 package main
 
 func main() {

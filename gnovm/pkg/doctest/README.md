@@ -1,27 +1,49 @@
-# Gno Doctest: Easy Code Execution and Testing
+# Gno Doctest
 
-Gno Doctest is a tool that allows you to easily execute and test code blocks written in the Gno language. This tool offers a range of features, from simple code execution to complex package imports.
+Gno Doctest executes fenced code blocks from Markdown files against
+the Gno VM and verifies their output.
 
-## Basic Usage
+## Usage
 
-To use Gno Doctest, run the following command:
+```
+gno doctest -path <markdown_file> [-run <regex>]
+```
 
-gno doctest -path <markdown_file_path> -run <code_block_name | "">
+- `<markdown_file>`: Path to the Markdown source.
+- `<regex>`: Optional Go-style pattern; only blocks whose name matches
+  are executed.
 
-- `<markdown_file_path>`: Path to the markdown file containing Gno code blocks
-- `<code_block_name>`: Name of the code block to run (optional)
+## Recognized fenced-code languages
 
-For example, to run the code block named "print hello world" in the file "foo.md", use the following command:
+A code block is treated as Gno when its language tag is `gno` or
+includes `gnodoctest` (e.g. `go,gnodoctest`, useful when you want
+GitHub to render Go syntax highlighting for the snippet).
 
-gno doctest -path foo.md -run "print hello world"
+## Directives
 
-## Features
+Doctest reuses [filetest](../test/filetest.go)'s directive grammar.
+PascalCase keys (`Output`, `Error`) start a multi-line section
+captured from the following `// ...` comment lines until the next
+section, a bare `//`, or any non-comment line. ALLCAPS keys are
+single-line: `KEY:` is a flag, `KEY: value` carries a value.
 
-### 1. Basic Code Execution
+| Directive | Form | Purpose |
+| --------- | ---- | ------- |
+| `Output` | multi-line | Expected stdout. |
+| `Error`  | multi-line | Expected error/panic text. |
+| `NAME`   | `NAME: <name>` | Block name used by `-run`. Defaults to `block_<index>`. |
+| `IGNORE` | `IGNORE:` | Skip execution of this block. |
+| `SHOULD_PANIC` | `SHOULD_PANIC:` or `SHOULD_PANIC: <msg>` | Block must panic. With a value, the panic must contain that substring. |
 
-Gno Doctest can execute simple code blocks:
+Output values prefixed with `regex:` are matched as a regular
+expression instead of a literal string.
 
-```go
+## Examples
+
+Basic execution with expected output:
+
+````
+```gno
 package main
 
 func main() {
@@ -31,57 +53,45 @@ func main() {
 // Output:
 // Hello, World!
 ```
+````
 
-Doctest also recognizes that a block of code is a gno. The code below outputs the same result as the example above.
+Named block, executable via `-run hello`:
 
-```go
-// @test: print hello world
+````
+```gno
+// NAME: hello
 package main
 
-func main() {
-    println("Hello, World!")
-}
+func main() { println("hi") }
 
 // Output:
-// Hello, World!
+// hi
 ```
+````
 
-Running this code will output "Hello, World!".
+Skipped block:
 
-### 3. Execution Options
-
-Doctest supports special execution options:
-Ignore Option
-Use the ignore tag to skip execution of a code block:
-
-**Ignore Option**
-
-Use the ignore tag to skip execution of a code block:
-
-```go,ignore
-// @ignore
+````
+```gno
+// IGNORE:
 package main
 
 func main() {
-    println("This won't be executed")
+    panic("never runs")
 }
 ```
+````
 
-## Conclusion
+Panic expectation with message:
 
-Gno Doctest simplifies the process of executing and testing Gno code snippets.
-
-```go
-// @test: slice
+````
+```gno
+// SHOULD_PANIC: index out of range
 package main
 
-type ints []int
-
 func main() {
-    a := ints{1,2,3}
-    println(a)
+    a := []int{1, 2, 3}
+    println(a[5])
 }
-
-// Output:
-// (slice[(1 int),(2 int),(3 int)] main.ints)
 ```
+````
