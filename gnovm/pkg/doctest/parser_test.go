@@ -94,7 +94,6 @@ func TestGetCodeBlocks(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			result, err := GetCodeBlocks(tt.input)
@@ -231,111 +230,42 @@ func main() {
 	}
 }
 
-func TestGenerateCodeBlockName(t *testing.T) {
+func TestCodeBlockName(t *testing.T) {
 	tests := []struct {
-		name                 string
-		content              string
-		output               string
-		expectedGenerateName string
+		name    string
+		content string
+		index   int
+		want    string
 	}{
 		{
-			name: "Simple print function",
-			content: `
-package main
-
-func main() {
-    println("Hello, World!")
-}
-// Output:
-// Hello, World!
-`,
-			output:               "Hello, World!",
-			expectedGenerateName: "Print_main_Hello, World!",
+			name:    "explicit name via @test directive",
+			content: "// @test: my_test\npackage main",
+			index:   0,
+			want:    "my_test",
 		},
 		{
-			name: "Explicitly named code block",
-			content: `
-// @test: specified
-package main
-
-func main() {
-	println("specified")
-}`,
-			output:               "specified",
-			expectedGenerateName: "specified",
+			name:    "explicit name with leading indentation",
+			content: "package main\n    // @test:   trimmed   \nfunc main() {}",
+			index:   3,
+			want:    "trimmed",
 		},
 		{
-			name: "Simple calculation",
-			content: `
-package main
-
-import "math"
-
-func calculateArea(radius float64) float64 {
-    return math.Pi * radius * radius
-}
-
-func main() {
-    println(calculateArea(5))
-}
-// Output:
-// 78.53981633974483
-`,
-			output:               "78.53981633974483",
-			expectedGenerateName: "Calc_calculateArea_78.53981633974483_math",
+			name:    "no directive falls back to block_<index>",
+			content: "package main\nfunc main() {}",
+			index:   2,
+			want:    "block_2",
 		},
 		{
-			name: "Test function",
-			content: `
-package main
-
-import "testing"
-
-func TestSquareRoot(t *testing.T) {
-    got := math.Sqrt(4)
-    if got != 2 {
-        t.Errorf("Sqrt(4) = %f; want 2", got)
-    }
-}
-`,
-			expectedGenerateName: "Test_TestSquareRoot_testing",
-		},
-		{
-			name: "Multiple imports",
-			content: `
-package main
-
-import (
-    "math"
-    "strings"
-)
-
-func main() {
-    println(math.Pi)
-    println(strings.ToUpper("hello"))
-}
-// Output:
-// 3.141592653589793
-// HELLO
-`,
-			output:               "3.141592653589793\nHELLO",
-			expectedGenerateName: "Print_main_3.141592653589793_math_strings",
-		},
-		{
-			name: "No function",
-			content: `
-package main
-
-var x = 5
-`,
-			expectedGenerateName: "x",
+			name:    "empty directive name falls back",
+			content: "// @test:\npackage main",
+			index:   1,
+			want:    "block_1",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := generateCodeBlockName(tt.content, tt.output)
-			assert.Equal(t, tt.expectedGenerateName, result)
+			assert.Equal(t, tt.want, codeBlockName(tt.content, tt.index))
 		})
 	}
 }
