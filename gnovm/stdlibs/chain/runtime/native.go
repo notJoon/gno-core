@@ -21,8 +21,9 @@ func isOriginCall(m *gno.Machine) bool {
 	if !isMsgCall {
 		return false
 	}
-	// count only non-closure frames.
-	return m.NumNonClosureFrames() <= 2
+	// Count only actual function call frames (excludes closures
+	// and control-flow basic frames like for/range/switch).
+	return m.NumCallFrames() <= 2
 }
 
 func ChainID(m *gno.Machine) string {
