@@ -5,27 +5,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 
 	"github.com/gnolang/gno/gnovm/pkg/gnoenv"
 	gno "github.com/gnolang/gno/gnovm/pkg/gnolang"
 	"github.com/gnolang/gno/gnovm/pkg/test"
+	"github.com/gnolang/gno/tm2/pkg/store"
+	storetypes "github.com/gnolang/gno/tm2/pkg/store/types"
 )
 
 const (
-	optIgnore      = "ignore"       // Do not run the code block
-	optShouldPanic = "should_panic" // Expect a panic
+	optIgnore      = "ignore"
+	optShouldPanic = "should_panic"
 	gnoLang        = "gno"
-	gnoDoctest     = "gnodoctest" // Alternative tag for GitHub syntax highlighting (e.g. "go,gnodoctest")
+	// gnoDoctest is an alternate tag so authors can write "go,gnodoctest"
+	// and still get GitHub syntax highlighting for Gno code.
+	gnoDoctest = "gnodoctest"
 
 	mainPkgPath   = "main"
 	maxAllocBytes = 500_000_000
 )
 
-// isGnoDoctest checks if the language tag contains "gnodoctest",
-// which allows using "go,gnodoctest" for GitHub syntax highlighting
-// while still being recognized as a gno code block.
 func isGnoDoctest(lang string) bool {
 	for part := range strings.SplitSeq(lang, ",") {
 		if strings.TrimSpace(part) == gnoDoctest {
@@ -35,20 +37,24 @@ func isGnoDoctest(lang string) bool {
 	return false
 }
 
-// ExecuteCodeBlock executes a parsed code block in a gno VM and
-// returns its captured output, or compares it against the expected
-// output/error when the block declares one.
+// ExecuteCodeBlock runs a single block. Each call rebuilds the
+// stdlib store; use [ExecuteMatchingCodeBlock] to amortize that cost
+// across multiple blocks.
 func ExecuteCodeBlock(c codeBlock, rootDir string) (string, error) {
 	if c.options.Ignore {
 		return "IGNORED", nil
 	}
-
-	lang := strings.Split(c.lang, ",")[0]
-	if lang != gnoLang && !isGnoDoctest(c.lang) {
-		return fmt.Sprintf("SKIPPED (Unsupported language: %s)", lang), nil
+	if skipped, ok := unsupportedLangResult(c.lang); ok {
+		return skipped, nil
 	}
+	baseStore, gnoStore := test.ProdStore(rootDir, io.Discard, nil)
+	return executeBlock(c, baseStore, gnoStore)
+}
 
-	output, runErr := runGnoBlock(rootDir, c)
+// executeBlock runs one block against a prepared store. The store is
+// cache-wrapped per call so blocks sharing gnoStore stay isolated.
+func executeBlock(c codeBlock, baseStore storetypes.CommitStore, gnoStore gno.Store) (string, error) {
+	output, runErr := runGnoBlock(c, baseStore, gnoStore)
 
 	if c.options.PanicMessage != "" {
 		return handlePanicMessage(runErr, c.options.PanicMessage)
@@ -62,17 +68,17 @@ func ExecuteCodeBlock(c codeBlock, rootDir string) (string, error) {
 	return compareResults(output, c.expectedOutput, c.expectedError)
 }
 
-// runGnoBlock parses and runs the code block's content as a main
-// package, returning everything written to stdout.
-func runGnoBlock(rootDir string, c codeBlock) (_ string, err error) {
+func runGnoBlock(c codeBlock, baseStore storetypes.CommitStore, gnoStore gno.Store) (_ string, err error) {
 	buf := new(bytes.Buffer)
-	_, store := test.ProdStore(rootDir, buf, nil)
+	gasMeter := store.NewInfiniteGasMeter()
+	tcw := baseStore.CacheWrap()
 	m := gno.NewMachineWithOptions(gno.MachineOptions{
 		PkgPath:       mainPkgPath,
 		Output:        buf,
-		Store:         store,
+		Store:         gnoStore.BeginTransaction(tcw, tcw, gasMeter),
 		Context:       test.Context(test.DefaultCaller, mainPkgPath, nil),
 		MaxAllocBytes: maxAllocBytes,
+		GasMeter:      gasMeter,
 	})
 	defer m.Release()
 	defer func() {
@@ -100,8 +106,16 @@ func runGnoBlock(rootDir string, c codeBlock) (_ string, err error) {
 	return buf.String(), nil
 }
 
-// ExecuteMatchingCodeBlock executes all code blocks in the given content that match the given pattern.
-// It returns a slice of execution results as strings and any error encountered during the execution.
+func unsupportedLangResult(lang string) (string, bool) {
+	base := strings.Split(lang, ",")[0]
+	if base == gnoLang || isGnoDoctest(lang) {
+		return "", false
+	}
+	return fmt.Sprintf("SKIPPED (Unsupported language: %s)", base), true
+}
+
+// ExecuteMatchingCodeBlock runs every code block whose name matches
+// pattern, sharing one stdlib store across them.
 func ExecuteMatchingCodeBlock(
 	ctx context.Context,
 	content string,
@@ -113,6 +127,10 @@ func ExecuteMatchingCodeBlock(
 		return nil, err
 	}
 
+	var (
+		baseStore storetypes.CommitStore
+		gnoStore  gno.Store
+	)
 	results := make([]string, 0, len(codeBlocks))
 	for _, block := range codeBlocks {
 		if err := ctx.Err(); err != nil {
@@ -123,7 +141,20 @@ func ExecuteMatchingCodeBlock(
 			continue
 		}
 
-		result, err := ExecuteCodeBlock(block, rootDir)
+		if block.options.Ignore {
+			results = append(results, fmt.Sprintf("\n=== %s ===\n\nIGNORED\n", block.name))
+			continue
+		}
+		if skipped, ok := unsupportedLangResult(block.lang); ok {
+			results = append(results, fmt.Sprintf("\n=== %s ===\n\n%s\n", block.name, skipped))
+			continue
+		}
+
+		if gnoStore == nil {
+			baseStore, gnoStore = test.ProdStore(rootDir, io.Discard, nil)
+		}
+
+		result, err := executeBlock(block, baseStore, gnoStore)
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute code block %s: %w", block.name, err)
 		}
@@ -151,7 +182,6 @@ func handlePanicMessage(err error, panicMessage string) (string, error) {
 	)
 }
 
-// compareResults compares the actual output of code execution with the expected output or error.
 func compareResults(actual, expectedOutput, expectedError string) (string, error) {
 	actual = strings.TrimSpace(actual)
 	expected := strings.TrimSpace(expectedOutput)
@@ -177,8 +207,6 @@ func compareResults(actual, expectedOutput, expectedError string) (string, error
 	return actual, nil
 }
 
-// compareRegex compares the actual output against a regex pattern.
-// It returns an error if the regex is invalid or if the actual output does not match the pattern.
 func compareRegex(actual, pattern string) (string, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
@@ -195,9 +223,8 @@ func compareRegex(actual, pattern string) (string, error) {
 	return actual, nil
 }
 
-// matchPattern checks if a name matches the specific pattern.
-// An empty pattern matches everything; otherwise pattern is treated
-// as a regular expression (same convention as `go test -run`).
+// matchPattern treats pattern as a regexp (like `go test -run`);
+// an empty pattern matches everything.
 func matchPattern(name, pattern string) bool {
 	if pattern == "" {
 		return true
@@ -209,8 +236,8 @@ func matchPattern(name, pattern string) bool {
 	return re.MatchString(name)
 }
 
-// DefaultRootDir returns the gno root directory used by the doctest
-// runner when one is not explicitly supplied.
+// DefaultRootDir returns the gno root directory used by doctest when
+// no rootDir is supplied.
 func DefaultRootDir() string {
 	return gnoenv.RootDir()
 }
