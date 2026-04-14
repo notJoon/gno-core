@@ -1,16 +1,16 @@
 package doctest
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"strings"
 
-	"github.com/gnolang/gno/gno.land/pkg/sdk/vm"
 	"github.com/gnolang/gno/gnovm/pkg/gnoenv"
-	"github.com/gnolang/gno/tm2/pkg/crypto/ed25519"
-	"github.com/gnolang/gno/tm2/pkg/std"
+	gno "github.com/gnolang/gno/gnovm/pkg/gnolang"
+	"github.com/gnolang/gno/gnovm/pkg/test"
 )
 
 const (
@@ -18,13 +18,16 @@ const (
 	optShouldPanic = "should_panic" // Expect a panic
 	gnoLang        = "gno"
 	gnoDoctest     = "gnodoctest" // Alternative tag for GitHub syntax highlighting (e.g. "go,gnodoctest")
+
+	mainPkgPath   = "main"
+	maxAllocBytes = 500_000_000
 )
 
 // isGnoDoctest checks if the language tag contains "gnodoctest",
 // which allows using "go,gnodoctest" for GitHub syntax highlighting
 // while still being recognized as a gno code block.
 func isGnoDoctest(lang string) bool {
-	for _, part := range strings.Split(lang, ",") {
+	for part := range strings.SplitSeq(lang, ",") {
 		if strings.TrimSpace(part) == gnoDoctest {
 			return true
 		}
@@ -32,61 +35,69 @@ func isGnoDoctest(lang string) bool {
 	return false
 }
 
-var (
-	regexCache = make(map[string]*regexp.Regexp)
-
-	addrRegex = regexp.MustCompile(`gno\.land/[pre]/[a-z0-9]+/[a-z_/.]+`)
-)
-
-// ExecuteCodeBlock executes a parsed code block and executes it in a gno VM.
-func ExecuteCodeBlock(c codeBlock, stdlibDir string) (string, error) {
+// ExecuteCodeBlock executes a parsed code block in a gno VM and
+// returns its captured output, or compares it against the expected
+// output/error when the block declares one.
+func ExecuteCodeBlock(c codeBlock, rootDir string) (string, error) {
 	if c.options.Ignore {
 		return "IGNORED", nil
 	}
 
-	// Extract the actual language from the lang field.
-	// Supports "gno" and "go,gnodoctest" (for GitHub syntax highlighting).
 	lang := strings.Split(c.lang, ",")[0]
 	if lang != gnoLang && !isGnoDoctest(c.lang) {
 		return fmt.Sprintf("SKIPPED (Unsupported language: %s)", lang), nil
 	}
-	// Normalize language to gno for file naming.
-	lang = gnoLang
 
-	ctx, acck, _, vmk, stdlibCtx := setupEnv(stdlibDir)
+	output, runErr := runGnoBlock(rootDir, c)
 
-	files := []*std.MemFile{
-		{Name: fmt.Sprintf("%d.%s", c.index, lang), Body: c.content},
-	}
-
-	// create a freash account for the code block
-	privKey := ed25519.GenPrivKey()
-	addr := privKey.PubKey().Address()
-	acc := acck.NewAccountWithAddress(ctx, addr)
-	acck.SetAccount(ctx, acc)
-
-	msg2 := vm.NewMsgRun(addr, std.Coins{}, files)
-
-	res, err := vmk.Run(stdlibCtx, msg2)
 	if c.options.PanicMessage != "" {
-		return handlePanicMessage(err, c.options.PanicMessage)
+		return handlePanicMessage(runErr, c.options.PanicMessage)
 	}
-
-	// remove package path from the result and replace with `main`.
-	res = replacePackagePath(res)
-
-	if err != nil {
-		return "", err
+	if runErr != nil {
+		return "", runErr
 	}
-
-	// If there is no expected output or error, It is considered
-	// a simple code execution and the result is returned as is.
 	if c.expectedOutput == "" && c.expectedError == "" {
-		return res, nil
+		return output, nil
 	}
+	return compareResults(output, c.expectedOutput, c.expectedError)
+}
 
-	// Otherwise, compare the actual output with the expected output or error.
-	return compareResults(res, c.expectedOutput, c.expectedError)
+// runGnoBlock parses and runs the code block's content as a main
+// package, returning everything written to stdout.
+func runGnoBlock(rootDir string, c codeBlock) (_ string, err error) {
+	buf := new(bytes.Buffer)
+	_, store := test.ProdStore(rootDir, buf, nil)
+	m := gno.NewMachineWithOptions(gno.MachineOptions{
+		PkgPath:       mainPkgPath,
+		Output:        buf,
+		Store:         store,
+		Context:       test.Context(test.DefaultCaller, mainPkgPath, nil),
+		MaxAllocBytes: maxAllocBytes,
+	})
+	defer m.Release()
+	defer func() {
+		if r := recover(); r != nil {
+			if upe, ok := r.(gno.UnhandledPanicError); ok {
+				err = errors.New(upe.Error())
+				return
+			}
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+
+	file, err := m.ParseFile(fmt.Sprintf("%d.gno", c.index), c.content)
+	if err != nil {
+		return "", fmt.Errorf("parse: %w", err)
+	}
+	m.RunFiles(file)
+
+	mainExpr, err := m.ParseExpr("main()")
+	if err != nil {
+		return "", fmt.Errorf("parse main(): %w", err)
+	}
+	m.Eval(mainExpr)
+
+	return buf.String(), nil
 }
 
 // ExecuteMatchingCodeBlock executes all code blocks in the given content that match the given pattern.
@@ -95,7 +106,7 @@ func ExecuteMatchingCodeBlock(
 	ctx context.Context,
 	content string,
 	pattern string,
-	stdlibsDir string,
+	rootDir string,
 ) ([]string, error) {
 	codeBlocks, err := GetCodeBlocks(content)
 	if err != nil {
@@ -112,7 +123,7 @@ func ExecuteMatchingCodeBlock(
 			continue
 		}
 
-		result, err := ExecuteCodeBlock(block, stdlibsDir)
+		result, err := ExecuteCodeBlock(block, rootDir)
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute code block %s: %w", block.name, err)
 		}
@@ -155,8 +166,8 @@ func compareResults(actual, expectedOutput, expectedError string) (string, error
 		return "", nil
 	}
 
-	if strings.HasPrefix(expected, "regex:") {
-		return compareRegex(actual, strings.TrimPrefix(expected, "regex:"))
+	if pattern, ok := strings.CutPrefix(expected, "regex:"); ok {
+		return compareRegex(actual, pattern)
 	}
 
 	if actual != expected {
@@ -184,58 +195,22 @@ func compareRegex(actual, pattern string) (string, error) {
 	return actual, nil
 }
 
-// getCompiledRegex retrieves or compiles a regex pattern.
-func getCompiledRegex(pattern string) (*regexp.Regexp, error) {
-	if re, exists := regexCache[pattern]; exists {
-		return re, nil
-	}
-
-	compiledPattern := regexp.QuoteMeta(pattern)
-	compiledPattern = strings.ReplaceAll(compiledPattern, "\\*", ".*")
-	re, err := regexp.Compile(compiledPattern)
-	if err != nil {
-		return nil, err
-	}
-
-	regexCache[pattern] = re
-	return re, nil
-}
-
 // matchPattern checks if a name matches the specific pattern.
+// An empty pattern matches everything; otherwise pattern is treated
+// as a regular expression (same convention as `go test -run`).
 func matchPattern(name, pattern string) bool {
 	if pattern == "" {
 		return true
 	}
-
-	re, err := getCompiledRegex(pattern)
+	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return false
 	}
-
 	return re.MatchString(name)
 }
 
-// for display purpose, replace address string with `main.xxx` when printing type.
-// ref: https://github.com/gnolang/gno/pull/2357#discussion_r1704398563
-func replacePackagePath(input string) string {
-	result := addrRegex.ReplaceAllStringFunc(input, func(match string) string {
-		parts := strings.Split(match, "/")
-		if len(parts) < 4 {
-			return match
-		}
-		lastPart := parts[len(parts)-1]
-		subParts := strings.Split(lastPart, ".")
-		if len(subParts) < 2 {
-			return "main." + lastPart
-		}
-		return "main." + subParts[len(subParts)-1]
-	})
-
-	return result
-}
-
-// GetStdlibsDir returns the path to the standard libraries directory
-// based on GNOROOT.
-func GetStdlibsDir() string {
-	return filepath.Join(gnoenv.RootDir(), "gnovm", "stdlibs")
+// DefaultRootDir returns the gno root directory used by the doctest
+// runner when one is not explicitly supplied.
+func DefaultRootDir() string {
+	return gnoenv.RootDir()
 }

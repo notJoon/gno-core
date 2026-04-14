@@ -210,7 +210,7 @@ func main() {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteCodeBlock(tt.codeBlock, GetStdlibsDir())
+			result, err := ExecuteCodeBlock(tt.codeBlock, DefaultRootDir())
 
 			if tt.expectError {
 				assert.NotNil(t, err)
@@ -400,7 +400,7 @@ func main() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			results, err := ExecuteMatchingCodeBlock(ctx, tt.content, tt.pattern, GetStdlibsDir())
+			results, err := ExecuteMatchingCodeBlock(ctx, tt.content, tt.pattern, DefaultRootDir())
 
 			if tt.expectError {
 				assert.NotNil(t, err)
@@ -442,7 +442,7 @@ func main() {
 		lang:    "gno",
 	}
 
-	result, err := ExecuteCodeBlock(codeBlock, GetStdlibsDir())
+	result, err := ExecuteCodeBlock(codeBlock, DefaultRootDir())
 	assert.Nil(t, err)
 	assert.Equal(t, expected, result)
 }

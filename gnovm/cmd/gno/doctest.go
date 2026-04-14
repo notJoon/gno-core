@@ -69,7 +69,7 @@ func execDoctest(cfg *doctestCfg, _ []string, io commands.IO) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
 	defer cancel()
 
-	results, err := dt.ExecuteMatchingCodeBlock(ctx, content, cfg.runPattern, dt.GetStdlibsDir())
+	results, err := dt.ExecuteMatchingCodeBlock(ctx, content, cfg.runPattern, dt.DefaultRootDir())
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("execution timed out after %v", cfg.timeout)
