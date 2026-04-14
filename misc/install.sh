@@ -1,147 +1,194 @@
-#!/bin/bash
-set -e
+#!/bin/sh
+# Gno precompiled binary installer (Linux/macOS, amd64/arm64).
+# Run with --help for usage.
 
-# Usage: curl -sSL https://raw.githubusercontent.com/gnolang/gno/master/misc/install.sh | bash
-# Optional: GNO_DIR=/custom/path curl -sSL https://raw.githubusercontent.com/gnolang/gno/master/misc/install.sh | bash
-# Uninstall: curl -sSL https://raw.githubusercontent.com/gnolang/gno/master/misc/install.sh | bash -s -- --uninstall
-#
-# This script is temporarily located in misc/ as we expect more official installation
-# methods to emerge. It provides a convenient one-liner for installing gno, which is
-# particularly useful when working with go.mod files containing replace directives
-# that might conflict with direct `go install` commands.
+set -eu
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+REPO="gnolang/gno"
+API="https://api.github.com/repos/${REPO}"
+COMPONENTS="gno gnokey gnodev gnobro"
 
-# Function to print colored messages
-log() {
-    echo -e "${GREEN}[gno-install]${NC} $1"
+VERSION="${GNO_VERSION:-latest}"
+INSTALL_DIR="${GNO_INSTALL_DIR:-${HOME}/.gno/bin}"
+UNINSTALL=0
+
+log() { printf '[gno-install] %s\n' "$1"; }
+die() { printf '[gno-install] error: %s\n' "$1" >&2; exit 1; }
+
+show_help() {
+    cat <<'EOF'
+Gno precompiled binary installer (Linux/macOS, amd64/arm64).
+
+Usage:
+  curl --proto '=https' --tlsv1.2 -sSf \
+    https://raw.githubusercontent.com/gnolang/gno/master/misc/install.sh | sh
+
+Flags:
+  --version <tag>   install a specific release tag (default: latest)
+  --dir <path>      install directory (default: $HOME/.gno/bin)
+  --uninstall       remove installed binaries (including legacy source dir)
+  --help            show this help
+
+Environment:
+  GNO_VERSION       same as --version
+  GNO_INSTALL_DIR   same as --dir
+EOF
 }
 
-error() {
-    echo -e "${RED}[gno-install]${NC} $1" >&2
+parse_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --version)   [ $# -ge 2 ] || die "--version needs a value"; VERSION="$2"; shift 2 ;;
+            --dir)       [ $# -ge 2 ] || die "--dir needs a value"; INSTALL_DIR="$2"; shift 2 ;;
+            --uninstall) UNINSTALL=1; shift ;;
+            -h|--help)   show_help; exit 0 ;;
+            *)           die "unknown flag: $1 (try --help)" ;;
+        esac
+    done
 }
 
-warn() {
-    echo -e "${YELLOW}[gno-install]${NC} $1"
+# env checks
+
+detect_platform() {
+    case "$(uname -s)" in
+        Linux)  OS="linux" ;;
+        Darwin) OS="darwin" ;;
+        *) die "unsupported OS: $(uname -s)" ;;
+    esac
+    case "$(uname -m)" in
+        x86_64|amd64)  ARCH="amd64" ;;
+        arm64|aarch64) ARCH="arm64" ;;
+        *) die "unsupported architecture: $(uname -m)" ;;
+    esac
 }
 
-# Function to check if a command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
+check_deps() {
+    command -v curl    >/dev/null 2>&1 || die "curl is required"
+    command -v tar     >/dev/null 2>&1 || die "tar is required"
+    command -v install >/dev/null 2>&1 || die "install is required"
+
+    if   command -v sha256sum >/dev/null 2>&1; then SHA="sha256sum"
+    elif command -v shasum    >/dev/null 2>&1; then SHA="shasum -a 256"
+    else die "sha256sum or shasum is required"
+
+    fi
+    # Prefer jq for JSON parsing; fall back to awk (see asset_url).
+    if command -v jq >/dev/null 2>&1; then JSON="jq"; else JSON="awk"; fi
 }
 
-# Function to determine gno source directory
-get_gno_dir() {
-    if [ -n "$GNO_DIR" ]; then
-        echo "$GNO_DIR"
-    elif [ -n "$HOME" ]; then
-        echo "$HOME/.gno/src"
+# installation
+
+# Emit .tag_name from the release metadata on stdout.
+release_tag() {
+    if [ "$JSON" = "jq" ]; then
+        jq -r '.tag_name' "$TMP/release.json"
     else
-        echo "/usr/local/share/gno"
+        sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$TMP/release.json" | head -1
     fi
 }
 
-# Function to check Go installation
-check_go() {
-    if ! command_exists go; then
-        error "Go is not installed. Please install Go first:"
-        echo "  https://golang.org/doc/install"
-        exit 1
-    fi
-
-    # Check Go version
-    GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-    if [ "$(echo "$GO_VERSION 1.18" | awk '{print ($1 < $2)}')" -eq 1 ]; then
-        error "Go version 1.18 or higher is required. Current version: $GO_VERSION"
-        exit 1
+# Emit the API URL for asset $1 from the release metadata on stdout.
+# Prefers jq; the awk fallback scans pretty-printed JSON and relies on the
+# current field order ("url" before "name" within each asset).
+asset_url() {
+    if [ "$JSON" = "jq" ]; then
+        jq -r --arg n "$1" '.assets[] | select(.name == $n) | .url' "$TMP/release.json"
+    else
+        awk -v t="$1" -v api="$API" '
+            match($0, /releases\/assets\/[0-9]+/) { u = substr($0, RSTART, RLENGTH) }
+            /"name":/ && index($0, "\"" t "\"") && u { print api "/" u; exit }
+        ' "$TMP/release.json"
     fi
 }
 
-# Function to install gno
 install_gno() {
-    local GNO_DIR
-    GNO_DIR=$(get_gno_dir)
+    # --proto =https and --tlsv1.2 harden the transport; --retry handles flaky nets.
+    CURL="curl --proto =https --tlsv1.2 -fsSL --retry 3 --retry-delay 2"
 
-    if ! command_exists git; then
-      error "git is not installed. Please install git first."
-      exit 1
-    fi
+    # The public github.com/<repo>/releases/download/... path currently 404s for
+    # this repository; resolving assets via the API endpoint works around it.
+    [ "$VERSION" = "latest" ] && REL="latest" || REL="tags/$VERSION"
+    META_URL="${API}/releases/${REL}"
 
-    log "Installing gno source to $GNO_DIR"
+    TMP="$(mktemp -d)"
+    trap 'rm -rf "$TMP"' EXIT INT TERM
 
-    mkdir -p "$GNO_DIR"
-    # Clone or update repository
-    if [ -d "$GNO_DIR/.git" ]; then
-        log "Updating existing gno repository..."
-        cd "$GNO_DIR"
-        git fetch --depth 1
-        git reset --hard origin/master
-    else
-        log "Cloning gno repository..."
-        git clone --depth 1 https://github.com/gnolang/gno.git "$GNO_DIR"
-        cd "$GNO_DIR"
-    fi
+    $CURL "$META_URL" > "$TMP/release.json" \
+        || die "failed to fetch release metadata ($VERSION)"
 
-    # Build and install
-    log "Building gno, gnokey, gnodev..."
-    make install
-    
-    # Build and install gnobro
-    log "Building gnobro..."
-    make install.gnobro
+    VERSION="$(release_tag)"
+    [ -n "$VERSION" ] || die "could not parse tag_name from release metadata"
 
-    # Verify installation
-    if ! command_exists gno; then
-        error "Installation failed. gno command not found."
-        log "Is $GOBIN set in your $PATH? See https://go.dev/doc/install/source#environment"
-        exit 1
-    fi
-    
-    if ! command_exists gnobro; then
-        warn "gnobro installation failed. gnobro command not found."
-        warn "You can install it manually later with: make install.gnobro"
-    fi
+    ARCHIVE="gno_${VERSION#v}_${OS}_${ARCH}.tar.gz"
+    log "installing gno ${VERSION} (${OS}/${ARCH}) into ${INSTALL_DIR}"
 
-    log "Installation successful! gno is now available."
-    gno version
-    
-    if command_exists gnobro; then
-        log "gnobro is also available."
-    fi
+    ARCHIVE_URL="$(asset_url "$ARCHIVE")"
+    SUMS_URL="$(asset_url "checksums.txt")"
+    [ -n "$ARCHIVE_URL" ] || die "$ARCHIVE is not an asset of $VERSION (no binaries for ${OS}/${ARCH}?)"
+    [ -n "$SUMS_URL" ]    || die "checksums.txt missing from $VERSION"
+
+    log "downloading $ARCHIVE"
+    $CURL -H "Accept: application/octet-stream" -o "$TMP/$ARCHIVE"      "$ARCHIVE_URL" || die "archive download failed"
+    $CURL -H "Accept: application/octet-stream" -o "$TMP/checksums.txt" "$SUMS_URL"    || die "checksums download failed"
+
+    expected="$(awk -v n="$ARCHIVE" '$2 == n {print $1; exit}' "$TMP/checksums.txt")"
+    [ -n "$expected" ] || die "$ARCHIVE not listed in checksums.txt"
+    actual="$(cd "$TMP" && $SHA "$ARCHIVE" | awk '{print $1}')"
+    [ "$expected" = "$actual" ] || die "sha256 mismatch: expected $expected, got $actual"
+    log "sha256 verified"
+
+    mkdir -p "$INSTALL_DIR" "$TMP/ext"
+    tar -xzf "$TMP/$ARCHIVE" -C "$TMP/ext"
+    for c in $COMPONENTS; do
+        [ -f "$TMP/ext/$c" ] || continue
+        install -m 0755 "$TMP/ext/$c" "$INSTALL_DIR/$c"
+        # Best-effort Gatekeeper unblock on macOS; harmless on Linux.
+        [ "$OS" = "darwin" ] && xattr -d com.apple.quarantine "$INSTALL_DIR/$c" 2>/dev/null || true
+    done
+
+    log "installed into $INSTALL_DIR"
+
+    case ":$PATH:" in
+        *":$INSTALL_DIR:"*) ;;
+        *) log "add to PATH: export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
+    esac
+
+    log "done. try: $INSTALL_DIR/gno --help"
 }
 
-# Function to uninstall gno
+# Removes binaries from the current install dir, and — for users migrating
+# from the previous source-build installer — also from $GOPATH/bin and the
+# legacy ~/.gno/src source checkout.
 uninstall_gno() {
-    local GNO_DIR
-    local GOPATH
-    GNO_DIR=$(get_gno_dir)
-    GOPATH=$(go env GOPATH)
-
-    log "Uninstalling gno binaries from $GOPATH/bin"
-    rm -f "$GOPATH/bin/gno"
-    rm -f "$GOPATH/bin/gnokey"
-    rm -f "$GOPATH/bin/gnodev"
-    rm -f "$GOPATH/bin/gnobro"
-
-    # Remove source directory
-    log "Removing gno source from $GNO_DIR"
-    rm -rf "$GNO_DIR"
-
-    log "Uninstallation complete."
+    log "removing from $INSTALL_DIR"
+    for c in gno gnokey gnodev gnobro gnoland gnoweb; do
+        rm -f "$INSTALL_DIR/$c"
+    done
+    if command -v go >/dev/null 2>&1; then
+        gobin="$(go env GOPATH 2>/dev/null)/bin"
+        if [ "$gobin" != "/bin" ]; then
+            log "removing legacy binaries from $gobin"
+            for c in gno gnokey gnodev gnobro; do
+                rm -f "$gobin/$c"
+            done
+        fi
+    fi
+    if [ -d "$HOME/.gno/src" ]; then
+        log "removing legacy source dir $HOME/.gno/src"
+        rm -rf "$HOME/.gno/src"
+    fi
+    log "uninstalled"
 }
 
-# Main script
-if [ "$1" = "--uninstall" ]; then
-    uninstall_gno
-    exit 0
-fi
+main() {
+    parse_args "$@"
+    if [ "$UNINSTALL" = 1 ]; then
+        uninstall_gno
+        exit 0
+    fi
+    detect_platform
+    check_deps
+    install_gno
+}
 
-# Check Go installation
-check_go
-
-# Install gno
-install_gno
+main "$@"
