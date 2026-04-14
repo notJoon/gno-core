@@ -23,8 +23,6 @@ var (
 // codeBlock represents a block of code extracted from the input text.
 type codeBlock struct {
 	content        string // The content of the code block.
-	start          int    // The start byte position of the code block in the input text.
-	end            int    // The end byte position of the code block in the input text.
 	lang           string // The language type of the code block.
 	index          int    // The index of the code block in the sequence of extracted blocks.
 	expectedOutput string // The expected output of the code block.
@@ -77,9 +75,6 @@ func createCodeBlock(node *mast.FencedCodeBlock, body string, index int) (codeBl
 
 	options := parseExecutionOptions(language, content)
 
-	start := lines.At(0).Start
-	end := lines.At(node.Lines().Len() - 1).Stop
-
 	expectedOutput, expectedError, err := parseExpectedResults(content)
 	if err != nil {
 		return codeBlock{}, err
@@ -87,8 +82,6 @@ func createCodeBlock(node *mast.FencedCodeBlock, body string, index int) (codeBl
 
 	return codeBlock{
 		content:        content,
-		start:          start,
-		end:            end,
 		lang:           language,
 		index:          index,
 		expectedOutput: expectedOutput,
@@ -186,13 +179,13 @@ type ExecutionOptions struct {
 func parseExecutionOptions(language string, content string) ExecutionOptions {
 	var options ExecutionOptions
 
+	// Skip the first part, which is the language itself.
+	// Remaining tags may set Ignore; should_panic requires a message
+	// from an in-code directive below, so it is not handled here.
 	parts := strings.Split(language, ",")
-	for _, option := range parts[1:] { // skip the first part which is the language
-		switch strings.TrimSpace(option) {
-		case optIgnore:
+	for _, option := range parts[1:] {
+		if strings.TrimSpace(option) == optIgnore {
 			options.Ignore = true
-		case optShouldPanic:
-			// specific panic message will be parsed later
 		}
 	}
 

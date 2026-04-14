@@ -18,72 +18,36 @@ func TestGetCodeBlocks(t *testing.T) {
 			name:  "Single code block with backticks",
 			input: "```go\nfmt.Println(\"Hello, World!\")\n```",
 			expected: []codeBlock{
-				{
-					content: "fmt.Println(\"Hello, World!\")",
-					start:   6,
-					end:     35,
-					lang:    "go",
-					index:   0,
-				},
+				{content: "fmt.Println(\"Hello, World!\")", lang: "go", index: 0},
 			},
 		},
 		{
 			name:  "Single code block with additional backticks",
 			input: "```go\nfmt.Println(\"Hello, World!\")\n``````",
 			expected: []codeBlock{
-				{
-					content: "fmt.Println(\"Hello, World!\")",
-					start:   6,
-					end:     35,
-					lang:    "go",
-					index:   0,
-				},
+				{content: "fmt.Println(\"Hello, World!\")", lang: "go", index: 0},
 			},
 		},
 		{
 			name:  "Single code block with tildes",
 			input: "## Example\nprint hello world in go.\n~~~go\nfmt.Println(\"Hello, World!\")\n~~~",
 			expected: []codeBlock{
-				{
-					content: "fmt.Println(\"Hello, World!\")",
-					start:   42,
-					end:     71,
-					lang:    "go",
-					index:   0,
-				},
+				{content: "fmt.Println(\"Hello, World!\")", lang: "go", index: 0},
 			},
 		},
 		{
 			name:  "Multiple code blocks",
 			input: "Here is some text.\n```python\ndef hello():\n    print(\"Hello, World!\")\n```\nSome more text.\n```javascript\nconsole.log(\"Hello, World!\");\n```",
 			expected: []codeBlock{
-				{
-					content: "def hello():\n    print(\"Hello, World!\")",
-					start:   29,
-					end:     69,
-					lang:    "python",
-					index:   0,
-				},
-				{
-					content: "console.log(\"Hello, World!\");",
-					start:   103,
-					end:     133,
-					lang:    "javascript",
-					index:   1,
-				},
+				{content: "def hello():\n    print(\"Hello, World!\")", lang: "python", index: 0},
+				{content: "console.log(\"Hello, World!\");", lang: "javascript", index: 1},
 			},
 		},
 		{
 			name:  "Code block with no language specifier",
 			input: "```\nfmt.Println(\"Hello, World!\")\n```",
 			expected: []codeBlock{
-				{
-					content: "fmt.Println(\"Hello, World!\")",
-					start:   4,
-					end:     33,
-					lang:    "plain",
-					index:   0,
-				},
+				{content: "fmt.Println(\"Hello, World!\")", lang: "plain", index: 0},
 			},
 		},
 		{
@@ -106,8 +70,6 @@ func TestGetCodeBlocks(t *testing.T) {
 
 			for i, res := range result {
 				assert.Equal(t, normalize(tt.expected[i].content), normalize(res.content))
-				assert.Equal(t, tt.expected[i].start, res.start)
-				assert.Equal(t, tt.expected[i].end, res.end)
 				assert.Equal(t, tt.expected[i].lang, res.lang)
 				assert.Equal(t, tt.expected[i].index, res.index)
 			}

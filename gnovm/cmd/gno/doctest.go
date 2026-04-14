@@ -61,7 +61,7 @@ func execDoctest(cfg *doctestCfg, _ []string, io commands.IO) error {
 		return errors.New("markdown file path is required")
 	}
 
-	content, err := fetchMarkdown(cfg.markdownPath)
+	content, err := os.ReadFile(cfg.markdownPath)
 	if err != nil {
 		return fmt.Errorf("failed to read markdown file: %w", err)
 	}
@@ -69,7 +69,7 @@ func execDoctest(cfg *doctestCfg, _ []string, io commands.IO) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
 	defer cancel()
 
-	results, err := dt.ExecuteMatchingCodeBlock(ctx, content, cfg.runPattern, dt.DefaultRootDir())
+	results, err := dt.ExecuteMatchingCodeBlock(ctx, string(content), cfg.runPattern, dt.DefaultRootDir())
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("execution timed out after %v", cfg.timeout)
@@ -87,11 +87,3 @@ func execDoctest(cfg *doctestCfg, _ []string, io commands.IO) error {
 	return nil
 }
 
-// fetchMarkdown reads a markdown file and returns its content
-func fetchMarkdown(path string) (string, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
-	}
-	return string(content), nil
-}
