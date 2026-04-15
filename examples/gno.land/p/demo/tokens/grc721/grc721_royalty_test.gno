@@ -15,7 +15,7 @@ func TestSetTokenRoyalty(t *testing.T) {
 	addr2 := testutils.TestAddress("bob")
 
 	paymentAddress := testutils.TestAddress("john")
-	percentage := int64(10) // 10%
+	bps := int64(1000) // 10% in basis points
 
 	salePrice := int64(1000)
 	expectRoyaltyAmount := int64(100)
@@ -26,14 +26,14 @@ func TestSetTokenRoyalty(t *testing.T) {
 
 	derr := dummy.SetTokenRoyalty(TokenID("1"), RoyaltyInfo{
 		PaymentAddress: paymentAddress,
-		Percentage:     percentage,
+		Bps:            bps,
 	})
 	uassert.NoError(t, derr, "Should not result in error")
 
 	// Test case: Invalid token ID
 	_ = dummy.SetTokenRoyalty(TokenID("3"), RoyaltyInfo{
 		PaymentAddress: paymentAddress,
-		Percentage:     percentage,
+		Bps:            bps,
 	})
 	uassert.ErrorIs(t, derr, ErrInvalidTokenId)
 
@@ -41,23 +41,23 @@ func TestSetTokenRoyalty(t *testing.T) {
 
 	cerr := dummy.SetTokenRoyalty(TokenID("1"), RoyaltyInfo{
 		PaymentAddress: paymentAddress,
-		Percentage:     percentage,
+		Bps:            bps,
 	})
 	uassert.ErrorIs(t, cerr, ErrCallerIsNotOwner)
 
 	// Test case: Invalid payment address
 	aerr := dummy.SetTokenRoyalty(TokenID("4"), RoyaltyInfo{
 		PaymentAddress: address("###"), // invalid address
-		Percentage:     percentage,
+		Bps:            bps,
 	})
 	uassert.ErrorIs(t, aerr, ErrInvalidRoyaltyPaymentAddress)
 
-	// Test case: Invalid percentage
+	// Test case: bps above maxRoyaltyBps
 	perr := dummy.SetTokenRoyalty(TokenID("5"), RoyaltyInfo{
 		PaymentAddress: paymentAddress,
-		Percentage:     int64(200), // over maxRoyaltyPercentage
+		Bps:            int64(10001), // over maxRoyaltyBps (10000)
 	})
-	uassert.ErrorIs(t, perr, ErrInvalidRoyaltyPercentage)
+	uassert.ErrorIs(t, perr, ErrInvalidRoyaltyBps)
 
 	// Test case: Retrieving Royalty Info
 	testing.SetOriginCaller(addr1) // addr1
@@ -93,7 +93,7 @@ func TestRoyaltyBpsCompliance(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := nft.SetTokenRoyalty(TokenID("1"), RoyaltyInfo{
 				PaymentAddress: payee,
-				Percentage:     tt.bps,
+				Bps:            tt.bps,
 			})
 			uassert.NoError(t, err, "bps value must be accepted")
 
