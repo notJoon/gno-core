@@ -67,3 +67,38 @@ func TestSetTokenRoyalty(t *testing.T) {
 	uassert.Equal(t, paymentAddress, dummyPaymentAddress)
 	uassert.Equal(t, expectRoyaltyAmount, dummyRoyaltyAmount)
 }
+
+func TestRoyaltyBpsCompliance(t *testing.T) {
+	owner := testutils.TestAddress("owner")
+	payee := testutils.TestAddress("payee")
+
+	nft := NewNFTWithRoyalty(dummyNFTName, dummyNFTSymbol)
+	testing.SetOriginCaller(owner)
+	nft.mint(owner, TokenID("1"))
+
+	tests := []struct {
+		name       string
+		bps        int64
+		salePrice  int64
+		wantAmount int64
+	}{
+		{"2.5% on 1000", 250, 1000, 25},
+		{"0.5% on 1000", 50, 1000, 5},
+		{"7.5% on 1000", 750, 1000, 75},
+		{"10% on 1000", 1000, 1000, 100},
+		{"100% on 1000", 10000, 1000, 1000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := nft.SetTokenRoyalty(TokenID("1"), RoyaltyInfo{
+				PaymentAddress: payee,
+				Percentage:     tt.bps,
+			})
+			uassert.NoError(t, err, "bps value must be accepted")
+
+			_, got, _ := nft.RoyaltyInfo(TokenID("1"), tt.salePrice)
+			uassert.Equal(t, got, tt.wantAmount)
+		})
+	}
+}
