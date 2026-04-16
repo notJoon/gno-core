@@ -70,8 +70,12 @@ func (r *royaltyNFT) RoyaltyInfo(tid TokenID, salePrice int64) (address, int64, 
 
 	royaltyInfo := val.(RoyaltyInfo)
 
-	// Calculate royalty amount
-	royaltyAmount := overflow.Mul64p(salePrice, royaltyInfo.Bps) / bpsDenominator
+	var royaltyAmount int64
+	if product, ok := overflow.Mul64(salePrice, royaltyInfo.Bps); ok {
+		royaltyAmount = product / bpsDenominator
+	} else {
+		royaltyAmount = (salePrice / bpsDenominator) * royaltyInfo.Bps
+	}
 
 	return royaltyInfo.PaymentAddress, royaltyAmount, nil
 }

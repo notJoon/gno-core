@@ -1,6 +1,7 @@
 package grc721
 
 import (
+	"math"
 	"testing"
 
 	"gno.land/p/nt/testutils/v0"
@@ -59,6 +60,13 @@ func TestSetTokenRoyalty(t *testing.T) {
 	})
 	uassert.ErrorIs(t, perr, ErrInvalidRoyaltyBps)
 
+	// Test case: negative bps
+	nerr := dummy.SetTokenRoyalty(TokenID("1"), RoyaltyInfo{
+		PaymentAddress: paymentAddress,
+		Bps:            int64(-1),
+	})
+	uassert.ErrorIs(t, nerr, ErrInvalidRoyaltyBps)
+
 	// Test case: Retrieving Royalty Info
 	testing.SetOriginCaller(addr1) // addr1
 
@@ -87,6 +95,9 @@ func TestRoyaltyBpsCompliance(t *testing.T) {
 		{"7.5% on 1000", 750, 1000, 75},
 		{"10% on 1000", 1000, 1000, 100},
 		{"100% on 1000", 10000, 1000, 1000},
+		{"0% on 1000", 0, 1000, 0},
+		// Truncation: 10% of 1 is 0.1, which rounds down to 0 in int64.
+		{"10% on 1 truncates", 1000, 1, 0},
 	}
 
 	for _, tt := range tests {
@@ -101,4 +112,29 @@ func TestRoyaltyBpsCompliance(t *testing.T) {
 			uassert.Equal(t, got, tt.wantAmount)
 		})
 	}
+}
+
+// TestRoyaltyInfoOverflow ensures RoyaltyInfo does not panic when the
+// precise product (salePrice * Bps) would overflow int64, and that the
+// fallback path returns an approximate result close to the true royalty.
+func TestRoyaltyInfoOverflow(t *testing.T) {
+	owner := testutils.TestAddress("owner")
+	payee := testutils.TestAddress("payee")
+
+	nft := NewNFTWithRoyalty(dummyNFTName, dummyNFTSymbol)
+	testing.SetOriginCaller(owner)
+	nft.mint(owner, TokenID("1"))
+
+	// 10% of MaxInt64 overflows when computed as MaxInt64 * 1000 first.
+	err := nft.SetTokenRoyalty(TokenID("1"), RoyaltyInfo{
+		PaymentAddress: payee,
+		Bps:            int64(1000),
+	})
+	uassert.NoError(t, err)
+
+	_, got, rerr := nft.RoyaltyInfo(TokenID("1"), int64(math.MaxInt64))
+	uassert.NoError(t, rerr)
+	// Fallback: (MaxInt64 / 10000) * 1000.
+	want := (int64(math.MaxInt64) / bpsDenominator) * int64(1000)
+	uassert.Equal(t, got, want)
 }
