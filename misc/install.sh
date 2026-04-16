@@ -6,11 +6,14 @@ set -eu
 
 REPO="gnolang/gno"
 API="https://api.github.com/repos/${REPO}"
-COMPONENTS="gno gnokey gnodev gnobro"
+
+COMPONENTS="gno gnokey gnodev gnobro gnoweb"
+FULL_COMPONENTS="gno gnokey gnodev gnobro gnoweb gnoland"
 
 VERSION="${GNO_VERSION:-latest}"
 INSTALL_DIR="${GNO_INSTALL_DIR:-${HOME}/.gno/bin}"
 UNINSTALL=0
+FULL=0
 
 log() { printf '[gno-install] %s\n' "$1"; }
 die() { printf '[gno-install] error: %s\n' "$1" >&2; exit 1; }
@@ -26,8 +29,12 @@ Usage:
 Flags:
   --version <tag>   install a specific release tag (default: latest)
   --dir <path>      install directory (default: $HOME/.gno/bin)
+  --full            also install the validator node (gnoland)
   --uninstall       remove installed binaries (including legacy source dir)
   --help            show this help
+
+By default installs: gno, gnokey, gnodev, gnobro, gnoweb.
+Use --full to additionally install gnoland (validator node).
 
 Environment:
   GNO_VERSION       same as --version
@@ -40,6 +47,7 @@ parse_args() {
         case "$1" in
             --version)   [ $# -ge 2 ] || die "--version needs a value"; VERSION="$2"; shift 2 ;;
             --dir)       [ $# -ge 2 ] || die "--dir needs a value"; INSTALL_DIR="$2"; shift 2 ;;
+            --full)      FULL=1; shift ;;
             --uninstall) UNINSTALL=1; shift ;;
             -h|--help)   show_help; exit 0 ;;
             *)           die "unknown flag: $1 (try --help)" ;;
@@ -159,7 +167,12 @@ install_gno() {
 
     mkdir -p "$INSTALL_DIR" "$TMP/ext"
     tar -xzf "$TMP/$ARCHIVE" -C "$TMP/ext"
-    for c in $COMPONENTS; do
+    if [ "$FULL" = 1 ]; then
+        components="$FULL_COMPONENTS"
+    else
+        components="$COMPONENTS"
+    fi
+    for c in $components; do
         [ -f "$TMP/ext/$c" ] || continue
         install -m 0755 "$TMP/ext/$c" "$INSTALL_DIR/$c"
         # Best-effort Gatekeeper unblock on macOS; harmless on Linux.
