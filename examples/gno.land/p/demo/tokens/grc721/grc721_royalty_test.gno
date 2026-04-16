@@ -31,7 +31,7 @@ func TestSetTokenRoyalty(t *testing.T) {
 	uassert.NoError(t, derr, "Should not result in error")
 
 	// Test case: Invalid token ID
-	_ = dummy.SetTokenRoyalty(TokenID("3"), RoyaltyInfo{
+	derr = dummy.SetTokenRoyalty(TokenID("3"), RoyaltyInfo{
 		PaymentAddress: paymentAddress,
 		Bps:            bps,
 	})
