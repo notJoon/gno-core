@@ -87,6 +87,18 @@ release_tag() {
     fi
 }
 
+# Emit the most recent v* release tag from $TMP/releases.json on stdout.
+# /releases/latest may point at a chain/* tag with no binaries, so we walk
+# the list and pick the first non-prerelease goreleaser-built tag.
+latest_v_tag() {
+    if [ "$JSON" = "jq" ]; then
+        jq -r 'map(select(.prerelease == false and (.tag_name | startswith("v")))) | .[0].tag_name // empty' "$TMP/releases.json"
+    else
+        # GitHub lists releases newest-first; grab the first v-prefixed tag.
+        sed -n 's/.*"tag_name": *"\(v[^"]*\)".*/\1/p' "$TMP/releases.json" | head -1
+    fi
+}
+
 # Emit the API URL for asset $1 from the release metadata on stdout.
 # Prefers jq; the awk fallback scans pretty-printed JSON and relies on the
 # current field order ("url" before "name" within each asset).
@@ -105,14 +117,22 @@ install_gno() {
     # --proto =https and --tlsv1.2 harden the transport; --retry handles flaky nets.
     CURL="curl --proto =https --tlsv1.2 -fsSL --retry 3 --retry-delay 2"
 
-    # The public github.com/<repo>/releases/download/... path currently 404s for
-    # this repository; resolving assets via the API endpoint works around it.
-    [ "$VERSION" = "latest" ] && REL="latest" || REL="tags/$VERSION"
-    META_URL="${API}/releases/${REL}"
-
     TMP="$(mktemp -d)"
     trap 'rm -rf "$TMP"' EXIT INT TERM
 
+    # GitHub's /releases/latest resolves to whatever it ranks as "latest",
+    # which for this repo is a chain/* tag without binaries. Resolve "latest"
+    # to the most recent v* tag ourselves instead.
+    if [ "$VERSION" = "latest" ]; then
+        $CURL "${API}/releases?per_page=30" > "$TMP/releases.json" \
+            || die "failed to fetch releases list"
+        VERSION="$(latest_v_tag)"
+        [ -n "$VERSION" ] || die "no v* release found; pass --version <tag> explicitly"
+    fi
+
+    # The public github.com/<repo>/releases/download/... path currently 404s for
+    # this repository; resolving assets via the API endpoint works around it.
+    META_URL="${API}/releases/tags/${VERSION}"
     $CURL "$META_URL" > "$TMP/release.json" \
         || die "failed to fetch release metadata ($VERSION)"
 
