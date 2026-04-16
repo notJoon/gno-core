@@ -181,10 +181,10 @@ install_gno() {
  \_, /_//_/\___(_)_/\_,_/_//_/\_,_//
 /___/
 
-To get started:
-  gnokey add <name>           Create your key
-  https://faucet.gno.land     Get testnet tokens
-  https://docs.gno.land       Build and deploy your first package
+ To get started:
+    gnodev                      Run a local chain with hot reload
+    https://gno.land            Explore realms already deployed on-chain
+    https://docs.gno.land       Full guide + deploy to a live network
 
 EOF
 }
