@@ -1,6 +1,6 @@
 module github.com/gnolang/gnomigrate
 
-go 1.25.0
+go 1.25.9
 
 require (
 	github.com/gnolang/gno v0.0.0-00010101000000-000000000000

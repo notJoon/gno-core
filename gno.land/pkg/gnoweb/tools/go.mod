@@ -1,6 +1,6 @@
 module tools
 
-go 1.25.0
+go 1.25.9
 
 require (
 	github.com/cespare/reflex v0.3.1

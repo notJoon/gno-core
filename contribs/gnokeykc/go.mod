@@ -1,6 +1,6 @@
 module github.com/gnolang/gno/contribs/gnokeykc
 
-go 1.25.0
+go 1.25.9
 
 replace github.com/gnolang/gno => ../..
 

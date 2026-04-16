@@ -1,6 +1,6 @@
 module github.com/gnolang/gno/misc/devdeps
 
-go 1.25.0
+go 1.25.9
 
 require (
 	github.com/campoy/embedmd v1.0.0
