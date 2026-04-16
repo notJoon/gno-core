@@ -153,7 +153,20 @@ install_gno() {
         *) log "add to PATH: export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
     esac
 
-    log "done. try: $INSTALL_DIR/gno --help"
+      cat <<'EOF'
+
+                      __             __
+    ___ ____  ___    / /__ ____  ___/ /
+   / _ `/ _ \/ _ \_ / / _ `/ _ \/ _  /
+   \_, /_//_/\___(_)_/\_,_/_//_/\_,_//
+  /___/
+
+  To get started:
+    gnokey add <name>           Create your key
+    https://faucet.gno.land     Get testnet tokens
+    https://docs.gno.land       Build and deploy your first package
+
+  EOF
 }
 
 # Removes binaries from the current install dir, and — for users migrating
