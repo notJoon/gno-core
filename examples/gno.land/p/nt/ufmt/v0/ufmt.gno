@@ -53,7 +53,7 @@ func Sprint(a ...any) string {
 func (p *printer) doPrint(args []any) {
 	for argNum, arg := range args {
 		if argNum > 0 {
-			p.buf.writeRune(' ')
+			p.buf.writeByte(' ')
 		}
 
 		switch v := arg.(type) {
@@ -64,9 +64,27 @@ func (p *printer) doPrint(args []any) {
 		case error:
 			p.buf.writeString(v.Error())
 		case float64:
-			p.buf.writeString(Sprintf("%f", v))
-		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-			p.buf.writeString(Sprintf("%d", v))
+			p.buf = strconv.AppendFloat(p.buf, v, 'f', 6, 64)
+		case int:
+			p.buf = strconv.AppendInt(p.buf, int64(v), 10)
+		case int8:
+			p.buf = strconv.AppendInt(p.buf, int64(v), 10)
+		case int16:
+			p.buf = strconv.AppendInt(p.buf, int64(v), 10)
+		case int32:
+			p.buf = strconv.AppendInt(p.buf, int64(v), 10)
+		case int64:
+			p.buf = strconv.AppendInt(p.buf, v, 10)
+		case uint:
+			p.buf = strconv.AppendUint(p.buf, uint64(v), 10)
+		case uint8:
+			p.buf = strconv.AppendUint(p.buf, uint64(v), 10)
+		case uint16:
+			p.buf = strconv.AppendUint(p.buf, uint64(v), 10)
+		case uint32:
+			p.buf = strconv.AppendUint(p.buf, uint64(v), 10)
+		case uint64:
+			p.buf = strconv.AppendUint(p.buf, v, 10)
 		case bool:
 			if v {
 				p.buf.writeString("true")
