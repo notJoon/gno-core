@@ -6,7 +6,6 @@
 package ufmt
 
 import (
-	"errors"
 	"io"
 	"strconv"
 	"strings"
@@ -274,7 +273,7 @@ func writeValue(p *printer, verb rune, arg any) {
 	case error:
 		p.buf.writeString(v.Error())
 	default:
-		p.buf.writeString(fallback(verb, v))
+		writeFallback(p, verb, v)
 	}
 }
 
@@ -289,7 +288,8 @@ func writeStringWithLength(p *printer, verb rune, arg any, length int) {
 	case string:
 		s = v
 	default:
-		s = fallback(verb, v)
+		writeFallback(p, verb, v)
+		return
 	}
 
 	if length > 0 && len(s) < length {
@@ -317,7 +317,7 @@ func writeChar(p *printer, verb rune, arg any) {
 	case uint16:
 		p.buf.writeRune(rune(v))
 	default:
-		p.buf.writeString(fallback(verb, v))
+		writeFallback(p, verb, v)
 	}
 }
 
@@ -345,7 +345,7 @@ func writeInt(p *printer, verb rune, arg any) {
 	case uint64:
 		p.buf = strconv.AppendUint(p.buf, v, 10)
 	default:
-		p.buf.writeString(fallback(verb, v))
+		writeFallback(p, verb, v)
 	}
 }
 
@@ -367,7 +367,7 @@ func writeFloatWithPrecision(p *printer, verb rune, arg any, precision int) {
 		}
 		p.buf = strconv.AppendFloat(p.buf, v, format, precision, 64)
 	default:
-		p.buf.writeString(fallback(verb, v))
+		writeFallback(p, verb, v)
 	}
 }
 
@@ -381,7 +381,7 @@ func writeBool(p *printer, verb rune, arg any) {
 			p.buf.writeString("false")
 		}
 	default:
-		p.buf.writeString(fallback(verb, v))
+		writeFallback(p, verb, v)
 	}
 }
 
@@ -532,79 +532,48 @@ func Appendln(b []byte, a ...any) []byte {
 	return append(b, p.buf...)
 }
 
-// This function is used to mimic Go's fmt.Sprintf
-// specific behaviour of showing verb/type mismatches,
-// where for example:
-//
-//	fmt.Sprintf("%d", "foo") gives "%!d(string=foo)"
-//
-// Here:
-//
-//	fallback("s", 8) -> "%!s(int=8)"
-//	fallback("d", nil) -> "%!d(<nil>)", and so on.f
-func fallback(verb rune, arg any) string {
-	var s string
+// writeFallback mimics Go's fmt.Sprintf mismatch output (e.g. "%!d(string=foo)")
+// by building the body via string concatenation and issuing a single
+// writeString. On gno this is cheaper than many small buffer appends.
+func writeFallback(p *printer, verb rune, arg any) {
+	var body string
 	switch v := arg.(type) {
 	case string:
-		s = "string=" + v
+		body = "string=" + v
 	case (interface{ String() string }):
-		s = "string=" + v.String()
+		body = "string=" + v.String()
 	case error:
-		// note: also "string=" in Go fmt
-		s = "string=" + v.Error()
+		body = "string=" + v.Error()
 	case float64:
-		s = "float64=" + Sprintf("%f", v)
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		// note: rune, byte would be dups, being aliases
-		if typename, e := typeToString(v); e == nil {
-			s = typename + "=" + Sprintf("%d", v)
-		} else {
-			panic("ufmt: unexpected type error")
-		}
-	case bool:
-		s = "bool=" + strconv.FormatBool(v)
-	case nil:
-		s = "<nil>"
-	default:
-		s = "(unhandled)"
-	}
-	return "%!" + string(verb) + "(" + s + ")"
-}
-
-// typeToString returns the name of basic Go types as string.
-func typeToString(v any) (string, error) {
-	switch v.(type) {
-	case string:
-		return "string", nil
+		body = "float64=" + strconv.FormatFloat(v, 'f', 6, 64)
 	case int:
-		return "int", nil
+		body = "int=" + strconv.Itoa(v)
 	case int8:
-		return "int8", nil
+		body = "int8=" + strconv.Itoa(int(v))
 	case int16:
-		return "int16", nil
+		body = "int16=" + strconv.Itoa(int(v))
 	case int32:
-		return "int32", nil
+		body = "int32=" + strconv.Itoa(int(v))
 	case int64:
-		return "int64", nil
+		body = "int64=" + strconv.FormatInt(v, 10)
 	case uint:
-		return "uint", nil
+		body = "uint=" + strconv.FormatUint(uint64(v), 10)
 	case uint8:
-		return "uint8", nil
+		body = "uint8=" + strconv.FormatUint(uint64(v), 10)
 	case uint16:
-		return "uint16", nil
+		body = "uint16=" + strconv.FormatUint(uint64(v), 10)
 	case uint32:
-		return "uint32", nil
+		body = "uint32=" + strconv.FormatUint(uint64(v), 10)
 	case uint64:
-		return "uint64", nil
-	case float32:
-		return "float32", nil
-	case float64:
-		return "float64", nil
+		body = "uint64=" + strconv.FormatUint(v, 10)
 	case bool:
-		return "bool", nil
+		body = "bool=" + strconv.FormatBool(v)
+	case nil:
+		body = "<nil>"
 	default:
-		return "", errors.New("unsupported type")
+		body = "(unhandled)"
 	}
+	p.buf.writeString("%!" + string(verb) + "(" + body + ")")
 }
 
 // errMsg implements the error interface for formatted error strings.
