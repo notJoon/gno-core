@@ -239,27 +239,27 @@ func writeValue(p *printer, verb rune, arg any) {
 	case bool:
 		writeBool(p, verb, v)
 	case int:
-		p.buf.writeString(strconv.Itoa(v))
+		p.buf = strconv.AppendInt(p.buf, int64(v), 10)
 	case int8:
-		p.buf.writeString(strconv.Itoa(int(v)))
+		p.buf = strconv.AppendInt(p.buf, int64(v), 10)
 	case int16:
-		p.buf.writeString(strconv.Itoa(int(v)))
+		p.buf = strconv.AppendInt(p.buf, int64(v), 10)
 	case int32:
-		p.buf.writeString(strconv.Itoa(int(v)))
+		p.buf = strconv.AppendInt(p.buf, int64(v), 10)
 	case int64:
-		p.buf.writeString(strconv.Itoa(int(v)))
+		p.buf = strconv.AppendInt(p.buf, int64(v), 10)
 	case uint:
-		p.buf.writeString(strconv.FormatUint(uint64(v), 10))
+		p.buf = strconv.AppendUint(p.buf, uint64(v), 10)
 	case uint8:
-		p.buf.writeString(strconv.FormatUint(uint64(v), 10))
+		p.buf = strconv.AppendUint(p.buf, uint64(v), 10)
 	case uint16:
-		p.buf.writeString(strconv.FormatUint(uint64(v), 10))
+		p.buf = strconv.AppendUint(p.buf, uint64(v), 10)
 	case uint32:
-		p.buf.writeString(strconv.FormatUint(uint64(v), 10))
+		p.buf = strconv.AppendUint(p.buf, uint64(v), 10)
 	case uint64:
-		p.buf.writeString(strconv.FormatUint(v, 10))
+		p.buf = strconv.AppendUint(p.buf, v, 10)
 	case float64:
-		p.buf.writeString(strconv.FormatFloat(v, 'g', -1, 64))
+		p.buf = strconv.AppendFloat(p.buf, v, 'g', -1, 64)
 	case string:
 		p.buf.writeString(v)
 	case []byte:
@@ -322,25 +322,25 @@ func writeChar(p *printer, verb rune, arg any) {
 func writeInt(p *printer, verb rune, arg any) {
 	switch v := arg.(type) {
 	case int:
-		p.buf.writeString(strconv.Itoa(v))
+		p.buf = strconv.AppendInt(p.buf, int64(v), 10)
 	case int8:
-		p.buf.writeString(strconv.Itoa(int(v)))
+		p.buf = strconv.AppendInt(p.buf, int64(v), 10)
 	case int16:
-		p.buf.writeString(strconv.Itoa(int(v)))
+		p.buf = strconv.AppendInt(p.buf, int64(v), 10)
 	case int32:
-		p.buf.writeString(strconv.Itoa(int(v)))
+		p.buf = strconv.AppendInt(p.buf, int64(v), 10)
 	case int64:
-		p.buf.writeString(strconv.Itoa(int(v)))
+		p.buf = strconv.AppendInt(p.buf, int64(v), 10)
 	case uint:
-		p.buf.writeString(strconv.FormatUint(uint64(v), 10))
+		p.buf = strconv.AppendUint(p.buf, uint64(v), 10)
 	case uint8:
-		p.buf.writeString(strconv.FormatUint(uint64(v), 10))
+		p.buf = strconv.AppendUint(p.buf, uint64(v), 10)
 	case uint16:
-		p.buf.writeString(strconv.FormatUint(uint64(v), 10))
+		p.buf = strconv.AppendUint(p.buf, uint64(v), 10)
 	case uint32:
-		p.buf.writeString(strconv.FormatUint(uint64(v), 10))
+		p.buf = strconv.AppendUint(p.buf, uint64(v), 10)
 	case uint64:
-		p.buf.writeString(strconv.FormatUint(v, 10))
+		p.buf = strconv.AppendUint(p.buf, v, 10)
 	default:
 		p.buf.writeString(fallback(verb, v))
 	}
@@ -386,7 +386,7 @@ func writeBool(p *printer, verb rune, arg any) {
 func writeHex(p *printer, verb rune, arg any) {
 	switch v := arg.(type) {
 	case uint8:
-		p.buf.writeString(strconv.FormatUint(uint64(v), 16))
+		p.buf = strconv.AppendUint(p.buf, uint64(v), 16)
 	default:
 		p.buf.writeString("(unhandled)")
 	}
@@ -396,7 +396,7 @@ func writeHex(p *printer, verb rune, arg any) {
 func writeQuotedString(p *printer, verb rune, arg any) {
 	switch v := arg.(type) {
 	case string:
-		p.buf.writeString(strconv.Quote(v))
+		p.buf = strconv.AppendQuote(p.buf, v)
 	default:
 		p.buf.writeString("(unhandled)")
 	}
