@@ -154,33 +154,16 @@ func (p *printer) doPrintf(format string, args []any) {
 		precision := -1
 		i++ // skip '%'
 
-		digits := func() string {
-			start := i
-			for i < end && sTor[i] >= '0' && sTor[i] <= '9' {
-				i++
-			}
-			if i > start {
-				return string(sTor[start:i])
-			}
-			return ""
-		}
-
-		if l := digits(); l != "" {
-			var err error
-			length, err = strconv.Atoi(l)
-			if err != nil {
-				panic("ufmt: invalid length specification")
-			}
+		if n, c, ok := parseNumber(sTor, i, end); ok {
+			length = n
+			i += c
 		}
 
 		if i < end && sTor[i] == '.' {
 			i++ // skip '.'
-			if l := digits(); l != "" {
-				var err error
-				precision, err = strconv.Atoi(l)
-				if err != nil {
-					panic("ufmt: invalid precision specification")
-				}
+			if n, c, ok := parseNumber(sTor, i, end); ok {
+				precision = n
+				i += c
 			}
 		}
 
@@ -231,6 +214,21 @@ func (p *printer) doPrintf(format string, args []any) {
 	if argNum < argLen {
 		panic("ufmt: too many arguments")
 	}
+}
+
+// parseNumber scans consecutive ASCII digits in runes starting at start.
+// Returns the parsed integer, how many runes were consumed, and whether
+// any digit was found.
+func parseNumber(runes []rune, start, end int) (num, consumed int, ok bool) {
+	for i := start; i < end; i++ {
+		r := runes[i]
+		if r < '0' || r > '9' {
+			break
+		}
+		num = num*10 + int(r-'0')
+		consumed++
+	}
+	return num, consumed, consumed > 0
 }
 
 // writeValue handles %v formatting
