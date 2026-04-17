@@ -257,7 +257,11 @@ func writeValue(p *printer, verb rune, arg any) {
 	case nil:
 		p.buf.writeString("<nil>")
 	case bool:
-		writeBool(p, verb, v)
+		if v {
+			p.buf.writeString("true")
+		} else {
+			p.buf.writeString("false")
+		}
 	case int:
 		p.buf = strconv.AppendInt(p.buf, int64(v), 10)
 	case int8:
@@ -325,17 +329,17 @@ func writeChar(p *printer, verb rune, arg any) {
 	case rune:
 		p.buf.writeString(string(v))
 	case int:
-		p.buf.writeRune(rune(v))
+		p.buf.writeString(string(rune(v)))
 	case int8:
-		p.buf.writeRune(rune(v))
+		p.buf.writeString(string(rune(v)))
 	case int16:
-		p.buf.writeRune(rune(v))
+		p.buf.writeString(string(rune(v)))
 	case uint:
-		p.buf.writeRune(rune(v))
+		p.buf.writeString(string(rune(v)))
 	case uint8:
-		p.buf.writeRune(rune(v))
+		p.buf.writeString(string(rune(v)))
 	case uint16:
-		p.buf.writeRune(rune(v))
+		p.buf.writeString(string(rune(v)))
 	default:
 		writeFallback(p, verb, v)
 	}
