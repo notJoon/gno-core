@@ -173,7 +173,7 @@ func (p *printer) doPrintf(format string, args []any) {
 
 		verb := sTor[i]
 		if verb == '%' {
-			p.buf.writeRune('%')
+			p.buf.writeByte('%')
 			i++
 			continue
 		}
