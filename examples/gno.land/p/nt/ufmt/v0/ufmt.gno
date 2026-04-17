@@ -293,7 +293,9 @@ func writeStringWithLength(p *printer, verb rune, arg any, length int) {
 	}
 
 	if length > 0 && len(s) < length {
-		s = strings.Repeat(" ", length-len(s)) + s
+		for k := length - len(s); k > 0; k-- {
+			p.buf.writeByte(' ')
+		}
 	}
 	p.buf.writeString(s)
 }
