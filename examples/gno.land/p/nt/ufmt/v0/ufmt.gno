@@ -134,18 +134,19 @@ func Sprintf(format string, a ...any) string {
 
 // doPrintf parses the format string and writes formatted arguments to the buffer.
 func (p *printer) doPrintf(format string, args []any) {
-	sTor := []rune(format)
-	end := len(sTor)
+	end := len(format)
 	argNum := 0
 	argLen := len(args)
 
 	for i := 0; i < end; {
-		isLast := i == end-1
-		c := sTor[i]
-
-		if isLast || c != '%' {
-			// we don't check for invalid format like a one ending with "%"
-			p.buf.writeRune(c)
+		if format[i] != '%' {
+			p.buf.writeByte(format[i])
+			i++
+			continue
+		}
+		// trailing '%' — treat as literal (invalid but tolerated)
+		if i == end-1 {
+			p.buf.writeByte('%')
 			i++
 			continue
 		}
@@ -154,14 +155,14 @@ func (p *printer) doPrintf(format string, args []any) {
 		precision := -1
 		i++ // skip '%'
 
-		if n, c, ok := parseNumber(sTor, i, end); ok {
+		if n, c, ok := parseNumber(format, i, end); ok {
 			length = n
 			i += c
 		}
 
-		if i < end && sTor[i] == '.' {
+		if i < end && format[i] == '.' {
 			i++ // skip '.'
-			if n, c, ok := parseNumber(sTor, i, end); ok {
+			if n, c, ok := parseNumber(format, i, end); ok {
 				precision = n
 				i += c
 			}
@@ -171,7 +172,7 @@ func (p *printer) doPrintf(format string, args []any) {
 			panic("ufmt: invalid format string")
 		}
 
-		verb := sTor[i]
+		verb := format[i]
 		if verb == '%' {
 			p.buf.writeByte('%')
 			i++
@@ -186,26 +187,28 @@ func (p *printer) doPrintf(format string, args []any) {
 
 		switch verb {
 		case 'v':
-			writeValue(p, verb, arg)
+			writeValue(p, rune(verb), arg)
 		case 's':
-			writeStringWithLength(p, verb, arg, length)
+			writeStringWithLength(p, rune(verb), arg, length)
 		case 'c':
-			writeChar(p, verb, arg)
+			writeChar(p, rune(verb), arg)
 		case 'd':
-			writeInt(p, verb, arg)
+			writeInt(p, rune(verb), arg)
 		case 'e', 'E', 'f', 'F', 'g', 'G':
-			writeFloatWithPrecision(p, verb, arg, precision)
+			writeFloatWithPrecision(p, rune(verb), arg, precision)
 		case 't':
-			writeBool(p, verb, arg)
+			writeBool(p, rune(verb), arg)
 		case 'x':
-			writeHex(p, verb, arg)
+			writeHex(p, rune(verb), arg)
 		case 'q':
-			writeQuotedString(p, verb, arg)
+			writeQuotedString(p, rune(verb), arg)
 		case 'T':
 			writeType(p, arg)
 		// % handled before, as it does not consume an argument
 		default:
-			p.buf.writeString("(unhandled verb: %" + string(verb) + ")")
+			p.buf.writeString("(unhandled verb: %")
+			p.buf.writeByte(verb)
+			p.buf.writeByte(')')
 		}
 
 		i++
@@ -216,16 +219,16 @@ func (p *printer) doPrintf(format string, args []any) {
 	}
 }
 
-// parseNumber scans consecutive ASCII digits in runes starting at start.
-// Returns the parsed integer, how many runes were consumed, and whether
+// parseNumber scans consecutive ASCII digits in s starting at start.
+// Returns the parsed integer, how many bytes were consumed, and whether
 // any digit was found.
-func parseNumber(runes []rune, start, end int) (num, consumed int, ok bool) {
+func parseNumber(s string, start, end int) (num, consumed int, ok bool) {
 	for i := start; i < end; i++ {
-		r := runes[i]
-		if r < '0' || r > '9' {
+		b := s[i]
+		if b < '0' || b > '9' {
 			break
 		}
-		num = num*10 + int(r-'0')
+		num = num*10 + int(b-'0')
 		consumed++
 	}
 	return num, consumed, consumed > 0
