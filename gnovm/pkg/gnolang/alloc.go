@@ -462,6 +462,10 @@ func (rv RefValue) GetShallowSize() int64 {
 	return allocRefValue
 }
 
+func (ExportRefValue) GetShallowSize() int64 {
+	return allocRefValue // same size class as RefValue
+}
+
 func (pv PointerValue) GetShallowSize() int64 {
 	return allocPointer
 }
