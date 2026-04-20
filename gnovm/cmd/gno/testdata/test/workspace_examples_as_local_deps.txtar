@@ -1,0 +1,71 @@
+mkdir $WORK/gnovm/tests
+symlink $WORK/gnovm/stdlibs -> $GNOROOT/gnovm/stdlibs
+symlink $WORK/gnovm/tests/stdlibs -> $GNOROOT/gnovm/tests/stdlibs
+env GNOROOT=$WORK
+
+# Sibling project passes (no external dep, should behave the same before
+# and after the fix).
+cd $WORK/foo/bar
+gno test -v .
+stderr '--- PASS: TestHello'
+stderr 'ok\s+\..*s'
+
+# Deep project pulls a package that lives in $GNOROOT/examples, not in
+# the foo/ workspace. The fix makes this resolve locally.
+cd $WORK/foo/bar/v1
+gno test -v .
+stderr '--- PASS: TestRun'
+stderr 'ok\s+\..*s'
+! stderr 'downloading gno\.land/p/ext/helper'
+
+-- foo/gnowork.toml --
+-- foo/bar/gnomod.toml --
+module = "gno.land/r/foo/bar"
+gno = "0.9"
+
+-- foo/bar/bar.gno --
+package bar
+
+func Hello() string { return "hi" }
+
+-- foo/bar/bar_test.gno --
+package bar
+
+import "testing"
+
+func TestHello(t *testing.T) {
+	if Hello() != "hi" {
+		t.Fatal(Hello())
+	}
+}
+
+-- foo/bar/v1/gnomod.toml --
+module = "gno.land/r/foo/bar/v1"
+gno = "0.9"
+
+-- foo/bar/v1/v1.gno --
+package v1
+
+import helper "gno.land/p/ext/helper"
+
+func Run() string { return helper.Greet() }
+
+-- foo/bar/v1/v1_test.gno --
+package v1
+
+import "testing"
+
+func TestRun(t *testing.T) {
+	if Run() != "hi" {
+		t.Fatal(Run())
+	}
+}
+
+-- examples/gno.land/p/ext/helper/gnomod.toml --
+module = "gno.land/p/ext/helper"
+gno = "0.9"
+
+-- examples/gno.land/p/ext/helper/helper.gno --
+package helper
+
+func Greet() string { return "hi" }

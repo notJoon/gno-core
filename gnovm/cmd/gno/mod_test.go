@@ -47,7 +47,6 @@ func TestModApp(t *testing.T) {
 			args:                 []string{"mod", "download"},
 			testDir:              "../../tests/integ/require_remote_module",
 			simulateExternalRepo: true,
-			stderrShouldContain:  "gno: downloading gno.land/p/nt/avl/v0",
 		},
 		{
 			args:                 []string{"mod", "download"},
@@ -70,7 +69,6 @@ func TestModApp(t *testing.T) {
 			args:                 []string{"mod", "download"},
 			testDir:              "../../tests/integ/replace_with_module",
 			simulateExternalRepo: true,
-			stderrShouldContain:  "gno: downloading gno.land/p/nt/avl/v0",
 		},
 		// TODO: that functionality is not available on gnomod.toml anymore. should we remove this?
 		// {
@@ -203,7 +201,6 @@ valid.gno
 			args:                 []string{"mod", "graph"},
 			testDir:              "../../tests/integ/valid2",
 			simulateExternalRepo: true,
-			stderrShouldBe:       "gno: downloading gno.land/p/nt/avl/v0\n",
 			stdoutShouldBe: `gno.land/p/integ/valid gno.land/p/integ/valid
 gno.land/p/integ/valid gno.land/p/nt/avl/v0
 gno.land/p/integ/valid testing
@@ -218,7 +215,6 @@ gno.land/p/nt/avl/v0 testing
 			args:                 []string{"mod", "graph"},
 			testDir:              "../../tests/integ/require_remote_module",
 			simulateExternalRepo: true,
-			stderrShouldBe:       "gno: downloading gno.land/p/nt/avl/v0\n",
 			stdoutShouldBe: `gno.land/t/importavl gno.land/p/nt/avl/v0
 gno.land/p/nt/avl/v0 gno.land/p/nt/avl/v0
 gno.land/p/nt/avl/v0 gno.land/p/nt/ufmt/v0
@@ -232,7 +228,6 @@ gno.land/p/nt/avl/v0 testing
 			args:                 []string{"mod", "graph"},
 			testDir:              "../../tests/integ/valid3",
 			simulateExternalRepo: true,
-			stderrShouldContain:  "gno: downloading gno.land/p/nt/avl/v0\n",
 			stdoutShouldBe: `gno.land/p/integ/valid3 gno.land/p/nt/avl/v0
 gno.land/p/nt/avl/v0 gno.land/p/nt/avl/v0
 gno.land/p/nt/avl/v0 gno.land/p/nt/ufmt/v0

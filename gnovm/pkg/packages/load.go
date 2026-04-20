@@ -249,6 +249,18 @@ func discoverPkgsForLocalDeps(conf LoadConfig, loaderCtx *loaderContext) map[str
 	}
 	roots = append(roots, conf.ExtraWorkspaceRoots...)
 
+	// treat the installed examples tree as an implicit workspace so that
+	// dependant projects can resolve gno.land/p/demo/*, p/nt/*, etc.
+	// without having to contain them.
+	// 
+	// workspace packages still win on collision because they come first in `roots`.
+	if conf.GnoRoot != "" {
+		examplesDir := filepath.Join(conf.GnoRoot, "examples")
+		if st, err := os.Stat(examplesDir); err == nil && st.IsDir() {
+			roots = append(roots, examplesDir)
+		}
+	}
+
 	byPkgPath := make(map[string]string)
 	byDir := make(map[string]string)
 
