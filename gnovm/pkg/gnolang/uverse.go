@@ -47,6 +47,15 @@ var gErrorType = &DeclaredType{
 	sealed: true,
 }
 
+// IsErrorType returns true if the given type implements the error interface.
+// This is useful for checking function return types without a TypedValue.
+func IsErrorType(t Type) bool {
+	if t == nil {
+		return false
+	}
+	return IsImplementedBy(gErrorType, t)
+}
+
 var gStringerType = &DeclaredType{
 	PkgPath: uversePkgPath,
 	Name:    "stringer",
@@ -804,6 +813,9 @@ func makeUverseNode() {
 				case 1:
 					lv := vargs.TV.GetPointerAtIndexInt(m.Store, 0).Deref()
 					li := int(lv.ConvertGetInt())
+					if li < 0 {
+						m.Panic(typedString("runtime error: makeslice: len out of range"))
+					}
 					if et.Kind() == Uint8Kind {
 						arrayValue := m.Alloc.NewDataArray(li)
 						m.PushValue(TypedValue{
@@ -833,8 +845,14 @@ func makeUverseNode() {
 					cv := vargs.TV.GetPointerAtIndexInt(m.Store, 1).Deref()
 					ci := int(cv.ConvertGetInt())
 
+					if li < 0 {
+						m.Panic(typedString("runtime error: makeslice: len out of range"))
+					}
+					if ci < 0 {
+						m.Panic(typedString("runtime error: makeslice: cap out of range"))
+					}
 					if ci < li {
-						m.Panic(typedString(`makeslice: cap out of range`))
+						m.Panic(typedString("runtime error: makeslice: cap out of range"))
 					}
 
 					if et.Kind() == Uint8Kind {
