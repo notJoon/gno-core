@@ -39,6 +39,8 @@ Use --full to additionally install gnoland (validator node).
 Environment:
   GNO_VERSION       same as --version
   GNO_INSTALL_DIR   same as --dir
+  GITHUB_TOKEN      optional. authenticates GitHub API requests to raise the
+                    60 requests/hour anonymous rate limit
 EOF
 }
 
@@ -85,6 +87,52 @@ check_deps() {
 }
 
 # installation
+
+# Fetch GitHub API metadata. Do not use for asset downloads: asset URLs
+# redirect to another host, and custom curl headers survive redirects.
+api_get() {
+    if [ -n "${GH_API_TOKEN:+x}" ]; then
+        case "$-" in *x*) _api_xt=1; set +x ;; *) _api_xt=0 ;; esac
+        printf 'header = "Authorization: Bearer %s"\n' "$GH_API_TOKEN" \
+            | $CURL --config - "$@"
+        _rc=$?
+        [ "$_api_xt" = 1 ] && set -x
+        return $_rc
+    fi
+    $CURL "$@"
+}
+
+# Resolve an asset API URL to its signed CDN URL without forwarding auth.
+resolve_asset() {
+    if [ -n "${GH_API_TOKEN:+x}" ]; then
+        case "$-" in *x*) _asset_xt=1; set +x ;; *) _asset_xt=0 ;; esac
+        printf 'header = "Authorization: Bearer %s"\n' "$GH_API_TOKEN" \
+            | curl --proto =https --tlsv1.2 -fsS --config - \
+                -H "Accept: application/octet-stream" \
+                -o /dev/null -w '%{redirect_url}' \
+                --retry 3 --retry-delay 2 \
+                "$1"
+        _rc=$?
+        [ "$_asset_xt" = 1 ] && set -x
+        return $_rc
+    fi
+    curl --proto =https --tlsv1.2 -fsS \
+        -H "Accept: application/octet-stream" \
+        -o /dev/null -w '%{redirect_url}' \
+        --retry 3 --retry-delay 2 \
+        "$1"
+}
+
+# Move GITHUB_TOKEN into a non-exported variable before spawning children.
+capture_github_token() {
+    GH_API_TOKEN=
+    if [ -n "${GITHUB_TOKEN:+x}" ]; then
+        case "$-" in *x*) _capture_xt=1; set +x ;; *) _capture_xt=0 ;; esac
+        GH_API_TOKEN=$GITHUB_TOKEN
+        unset GITHUB_TOKEN
+        [ "$_capture_xt" = 1 ] && set -x
+    fi
+}
 
 # Emit .tag_name from the release metadata on stdout.
 release_tag() {
@@ -139,6 +187,10 @@ install_gno() {
     # --proto =https and --tlsv1.2 harden the transport; --retry handles flaky nets.
     CURL="curl --proto =https --tlsv1.2 -fsSL --retry 3 --retry-delay 2"
 
+    if [ -n "${GH_API_TOKEN:+x}" ]; then
+        log "authenticating GitHub API requests with GITHUB_TOKEN"
+    fi
+
     TMP="$(mktemp -d)"
     trap 'rm -rf "$TMP"' EXIT INT TERM
 
@@ -146,7 +198,7 @@ install_gno() {
     # which for this repo is a chain/* tag without binaries. Resolve "latest"
     # to the most recent v* tag ourselves instead.
     if [ "$VERSION" = "latest" ]; then
-        $CURL "${API}/releases?per_page=30" > "$TMP/releases.json" \
+        api_get "${API}/releases?per_page=30" > "$TMP/releases.json" \
             || die "failed to fetch releases list"
         VERSION="$(latest_v_tag)"
         [ -n "$VERSION" ] || die "no v* release found; pass --version <tag> explicitly (see https://github.com/${REPO}/releases)"
@@ -155,7 +207,7 @@ install_gno() {
     # The public github.com/<repo>/releases/download/... path currently 404s for
     # this repository; resolving assets via the API endpoint works around it.
     META_URL="${API}/releases/tags/${VERSION}"
-    $CURL "$META_URL" > "$TMP/release.json" \
+    api_get "$META_URL" > "$TMP/release.json" \
         || die "failed to fetch release metadata ($VERSION)"
 
     VERSION="$(release_tag)"
@@ -170,8 +222,16 @@ install_gno() {
     [ -n "$SUMS_URL" ]    || die "checksums.txt missing from $VERSION"
 
     log "downloading $ARCHIVE"
-    $CURL -H "Accept: application/octet-stream" -o "$TMP/$ARCHIVE"      "$ARCHIVE_URL" || die "archive download failed"
-    $CURL -H "Accept: application/octet-stream" -o "$TMP/checksums.txt" "$SUMS_URL"    || die "checksums download failed"
+    # Signed CDN URLs carry short-lived query credentials; keep them out of xtrace.
+    case "$-" in *x*) _download_xt=1; set +x ;; *) _download_xt=0 ;; esac
+    ARCHIVE_SIGNED="$(resolve_asset "$ARCHIVE_URL")"
+    [ -n "$ARCHIVE_SIGNED" ] || die "could not resolve $ARCHIVE download URL"
+    $CURL -o "$TMP/$ARCHIVE"      "$ARCHIVE_SIGNED" || die "archive download failed"
+
+    SUMS_SIGNED="$(resolve_asset "$SUMS_URL")"
+    [ -n "$SUMS_SIGNED" ] || die "could not resolve checksums.txt download URL"
+    $CURL -o "$TMP/checksums.txt" "$SUMS_SIGNED"    || die "checksums download failed"
+    [ "$_download_xt" = 1 ] && set -x
 
     expected="$(awk -v n="$ARCHIVE" '$2 == n {print $1; exit}' "$TMP/checksums.txt")"
     [ -n "$expected" ] || die "$ARCHIVE not listed in checksums.txt"
@@ -247,6 +307,7 @@ uninstall_gno() {
 
 main() {
     parse_args "$@"
+    capture_github_token
     if [ "$UNINSTALL" = 1 ]; then
         uninstall_gno
         exit 0
