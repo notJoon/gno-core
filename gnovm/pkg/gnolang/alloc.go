@@ -12,10 +12,11 @@ import (
 // (optionally?) condensed (objects to be GC'd will be discarded),
 // but for now, allocations strictly increment across the whole tx.
 type Allocator struct {
-	maxBytes int64
-	bytes    int64
-	collect  func() (left int64, ok bool) // gc callback
-	gasMeter store.GasMeter
+	maxBytes  int64
+	bytes     int64
+	numAllocs int64
+	collect   func() (left int64, ok bool) // gc callback
+	gasMeter  store.GasMeter
 }
 
 // for gonative, which doesn't consider the allocator.
@@ -99,7 +100,7 @@ func (alloc *Allocator) MemStats() string {
 	if alloc == nil {
 		return "nil allocator"
 	} else {
-		return fmt.Sprintf("Allocator{maxBytes:%d, bytes:%d}", alloc.maxBytes, alloc.bytes)
+		return fmt.Sprintf("Allocator{maxBytes:%d, bytes:%d, numAllocs:%d}", alloc.maxBytes, alloc.bytes, alloc.numAllocs)
 	}
 }
 
@@ -107,11 +108,19 @@ func (alloc *Allocator) Status() (maxBytes int64, bytes int64) {
 	return alloc.maxBytes, alloc.bytes
 }
 
+func (alloc *Allocator) NumAllocs() int64 {
+	if alloc == nil {
+		return 0
+	}
+	return alloc.numAllocs
+}
+
 func (alloc *Allocator) Reset() *Allocator {
 	if alloc == nil {
 		return nil
 	}
 	alloc.bytes = 0
+	alloc.numAllocs = 0
 	return alloc
 }
 
@@ -131,8 +140,9 @@ func (alloc *Allocator) Fork() *Allocator {
 		return nil
 	}
 	return &Allocator{
-		maxBytes: alloc.maxBytes,
-		bytes:    alloc.bytes,
+		maxBytes:  alloc.maxBytes,
+		bytes:     alloc.bytes,
+		numAllocs: alloc.numAllocs,
 	}
 }
 
@@ -157,6 +167,7 @@ func (alloc *Allocator) Allocate(size int64) {
 	} else {
 		alloc.bytes += size
 	}
+	alloc.numAllocs++
 
 	// Charge gas for every allocation unconditionally (cpu/throughput).
 	// This ensures repeated allocate-then-GC cycles are not free.
