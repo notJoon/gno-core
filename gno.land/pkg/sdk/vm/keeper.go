@@ -65,6 +65,8 @@ type VMKeeperI interface {
 	LoadStdlibCached(ctx sdk.Context, stdlibDir string)
 	MakeGnoTransactionStore(ctx sdk.Context) sdk.Context
 	CommitGnoTransactionStore(ctx sdk.Context)
+	PopulateStdlibCache()
+	PopulateStdlibCacheFrom(ms store.MultiStore)
 	InitGenesis(ctx sdk.Context, data GenesisState)
 }
 
@@ -160,9 +162,25 @@ func (vm *VMKeeper) Initialize(
 			opts.Cache[stdlib] = pkg
 		}
 
-		logger.Info("GnoVM packages preprocessed",
+		// Populate stdlib byte cache for gas-free stdlib reads.
+		vm.gnoStore.PopulateStdlibCache(stdlibs.InitOrder())
+
+		logger.Debug("GnoVM packages preprocessed",
 			"elapsed", time.Since(start))
 	}
+}
+
+// PopulateStdlibCache populates the stdlib byte cache on the gno store.
+func (vm *VMKeeper) PopulateStdlibCache() {
+	vm.gnoStore.PopulateStdlibCache(stdlibs.InitOrder())
+}
+
+// PopulateStdlibCacheFrom populates the stdlib byte cache by reading from
+// the given multistore. Needed at genesis when the persistent gnoStore's
+// baseStore doesn't have stdlib objects yet (they're in the deliver state).
+func (vm *VMKeeper) PopulateStdlibCacheFrom(ms store.MultiStore) {
+	baseStore := ms.GetStore(vm.baseKey)
+	vm.gnoStore.PopulateStdlibCacheFrom(stdlibs.InitOrder(), baseStore)
 }
 
 type stdlibCache struct {
@@ -342,9 +360,20 @@ const (
 func (vm *VMKeeper) newGnoTransactionStore(ctx sdk.Context) gno.TransactionStore {
 	base := ctx.Store(vm.baseKey)
 	iavl := ctx.Store(vm.iavlKey)
+	gctx := ctx.GasContext()
+	if gctx != nil {
+		// Apply depth governance parameters. Write to a value-copy
+		// of Config and build a fresh GasContext so we never mutate
+		// a Config that a future caller (or a cached/pooled gctx)
+		// might share — an in-place write there would race across
+		// concurrent transactions and could break consensus.
+		cfg := gctx.Config
+		vm.GetParams(ctx).ApplyToGasConfig(&cfg)
+		gctx = &store.GasContext{Meter: gctx.Meter, Config: cfg}
+	}
 	gasMeter := ctx.GasMeter()
 
-	return vm.gnoStore.BeginTransaction(base, iavl, gasMeter)
+	return vm.gnoStore.BeginTransaction(base, iavl, gctx, gasMeter)
 }
 
 func (vm *VMKeeper) MakeGnoTransactionStore(ctx sdk.Context) sdk.Context {
@@ -1004,6 +1033,7 @@ func (vm *VMKeeper) QueryPaths(ctx sdk.Context, target string, limit int) ([]str
 		return nil, errors.New("cannot have negative limit value")
 	}
 
+	ctx = ctx.WithGasMeter(store.NewGasMeter(maxGasQuery))
 	// Determine effective limit to return
 	store := vm.newGnoTransactionStore(ctx) // throwaway (never committed)
 
@@ -1070,6 +1100,7 @@ func collectWithLimit[T any](seq iter.Seq[T], limit int) []T {
 
 // QueryFuncs returns public facing function signatures.
 func (vm *VMKeeper) QueryFuncs(ctx sdk.Context, pkgPath string) (fsigs FunctionSignatures, err error) {
+	ctx = ctx.WithGasMeter(store.NewGasMeter(maxGasQuery))
 	store := vm.newGnoTransactionStore(ctx) // throwaway (never committed)
 	// Ensure pkgPath is realm.
 	if !gno.IsRealmPath(pkgPath) {
@@ -1086,7 +1117,8 @@ func (vm *VMKeeper) QueryFuncs(ctx sdk.Context, pkgPath string) (fsigs FunctionS
 	}
 	// Iterate over public functions.
 	pblock := pv.GetBlock(store)
-	for _, tv := range pblock.Values {
+	for i := range pblock.Values {
+		tv := pblock.GetPointerToInt(store, i).TV
 		if tv.T.Kind() != gno.FuncKind {
 			continue // must be function
 		}
@@ -1223,6 +1255,7 @@ func (vm *VMKeeper) withQueryEvalMachine(ctx sdk.Context, pkgPath string, expr s
 }
 
 func (vm *VMKeeper) QueryFile(ctx sdk.Context, filepath string) (res string, err error) {
+	ctx = ctx.WithGasMeter(store.NewGasMeter(maxGasQuery))
 	store := vm.newGnoTransactionStore(ctx) // throwaway (never committed)
 	dirpath, filename := std.SplitFilepath(filepath)
 	if filename != "" {
@@ -1247,6 +1280,7 @@ func (vm *VMKeeper) QueryFile(ctx sdk.Context, filepath string) (res string, err
 }
 
 func (vm *VMKeeper) QueryDoc(ctx sdk.Context, pkgPath string) (*doc.JSONDocumentation, error) {
+	ctx = ctx.WithGasMeter(store.NewGasMeter(maxGasQuery))
 	store := vm.newGnoTransactionStore(ctx) // throwaway (never committed)
 
 	memPkg := store.GetMemPackage(pkgPath)
@@ -1264,6 +1298,7 @@ func (vm *VMKeeper) QueryDoc(ctx sdk.Context, pkgPath string) (*doc.JSONDocument
 
 // QueryStorage returns storage and deposit for a realm.
 func (vm *VMKeeper) QueryStorage(ctx sdk.Context, pkgPath string) (string, error) {
+	ctx = ctx.WithGasMeter(store.NewGasMeter(maxGasQuery))
 	store := vm.newGnoTransactionStore(ctx) // throwaway (never committed)
 	rlm := store.GetPackageRealm(pkgPath)
 	if rlm == nil {
