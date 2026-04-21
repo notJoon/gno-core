@@ -102,8 +102,22 @@ latest_v_tag() {
     if [ "$JSON" = "jq" ]; then
         jq -r 'map(select(.prerelease == false and (.tag_name | startswith("v")))) | .[0].tag_name // empty' "$TMP/releases.json"
     else
-        # GitHub lists releases newest-first; grab the first v-prefixed tag.
-        sed -n 's/.*"tag_name": *"\(v[^"]*\)".*/\1/p' "$TMP/releases.json" | head -1
+        # GitHub lists releases newest-first. Pair each v-prefixed tag_name with
+        # the prerelease flag that follows it in the same release object, and
+        # emit the first non-prerelease one.
+        awk '
+            /"tag_name":/ {
+                line = $0
+                sub(/.*"tag_name"[[:space:]]*:[[:space:]]*"/, "", line)
+                sub(/".*/, "", line)
+                if (line ~ /^v/) tag = line; else tag = ""
+                next
+            }
+            /"prerelease":/ {
+                if (tag != "" && $0 !~ /true/) { print tag; exit }
+                tag = ""
+            }
+        ' "$TMP/releases.json"
     fi
 }
 
@@ -135,7 +149,7 @@ install_gno() {
         $CURL "${API}/releases?per_page=30" > "$TMP/releases.json" \
             || die "failed to fetch releases list"
         VERSION="$(latest_v_tag)"
-        [ -n "$VERSION" ] || die "no v* release found; pass --version <tag> explicitly"
+        [ -n "$VERSION" ] || die "no v* release found; pass --version <tag> explicitly (see https://github.com/${REPO}/releases)"
     fi
 
     # The public github.com/<repo>/releases/download/... path currently 404s for
@@ -172,12 +186,17 @@ install_gno() {
     else
         components="$COMPONENTS"
     fi
+    missing=""
     for c in $components; do
-        [ -f "$TMP/ext/$c" ] || continue
+        if [ ! -f "$TMP/ext/$c" ]; then
+            missing="${missing} ${c}"
+            continue
+        fi
         install -m 0755 "$TMP/ext/$c" "$INSTALL_DIR/$c"
         # Best-effort Gatekeeper unblock on macOS; harmless on Linux.
         [ "$OS" = "darwin" ] && xattr -d com.apple.quarantine "$INSTALL_DIR/$c" 2>/dev/null || true
     done
+    [ -z "$missing" ] || log "warning: expected binaries missing from $ARCHIVE:${missing}"
 
     log "installed into $INSTALL_DIR"
 
@@ -207,7 +226,7 @@ EOF
 # legacy ~/.gno/src source checkout.
 uninstall_gno() {
     log "removing from $INSTALL_DIR"
-    for c in gno gnokey gnodev gnobro gnoland gnoweb; do
+    for c in $FULL_COMPONENTS; do
         rm -f "$INSTALL_DIR/$c"
     done
     if command -v go >/dev/null 2>&1; then
