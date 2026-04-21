@@ -365,6 +365,15 @@ func formatDur(dur int64) string {
 // used to calculate execution times; only present in testing stdlibs
 func unixNano() int64
 
+// used to calculate deterministic benchmark cycle counts; only present in testing stdlibs
+func cycleCount() int64
+
+// used to calculate deterministic benchmark allocation bytes; only present in testing stdlibs
+func allocBytes() int64
+
+// used to calculate deterministic benchmark allocation counts; only present in testing stdlibs
+func allocCount() int64
+
 // recovers panics and returns their related stacktraces, as well
 func recoverWithStacktrace() (interface{}, string)
 

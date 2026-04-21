@@ -100,7 +100,7 @@ func (alloc *Allocator) MemStats() string {
 	if alloc == nil {
 		return "nil allocator"
 	} else {
-		return fmt.Sprintf("Allocator{maxBytes:%d, bytes:%d, numAllocs:%d}", alloc.maxBytes, alloc.bytes, alloc.numAllocs)
+		return fmt.Sprintf("Allocator{maxBytes:%d, bytes:%d}", alloc.maxBytes, alloc.bytes)
 	}
 }
 
