@@ -4,7 +4,7 @@
 gno test -bench . -benchcount 5 .
 
 ! stdout .+
-stderr 'BenchmarkCrossing\s+5\s+[0-9]+ cycles/op'
+stderr 'BenchmarkCrossing\s+5\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op'
 stderr 'ok      \.\s+\d+\.\d\ds'
 
 -- bench.gno --

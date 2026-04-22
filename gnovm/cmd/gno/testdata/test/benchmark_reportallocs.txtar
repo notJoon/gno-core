@@ -5,8 +5,8 @@
 gno test -bench . -benchcount 5 -benchmem .
 
 ! stdout .+
-stderr 'BenchmarkWithReportAllocs\s+5\s+[0-9]+ cycles/op\s+[0-9]+ B/op\s+[0-9]+ allocs/op'
-stderr 'BenchmarkWithoutReportAllocs\s+5\s+[0-9]+ cycles/op\s+[0-9]+ B/op\s+[0-9]+ allocs/op'
+stderr 'BenchmarkWithReportAllocs\s+5\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op\s+[0-9]+ B/op\s+[0-9]+ allocs/op'
+stderr 'BenchmarkWithoutReportAllocs\s+5\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op\s+[0-9]+ B/op\s+[0-9]+ allocs/op'
 stderr 'ok      \.\s+\d+\.\d\ds'
 
 # Without -benchmem, only the bench that called b.ReportAllocs() prints
@@ -14,9 +14,9 @@ stderr 'ok      \.\s+\d+\.\d\ds'
 gno test -bench . -benchcount 5 .
 
 ! stdout .+
-stderr 'BenchmarkWithReportAllocs\s+5\s+[0-9]+ cycles/op\s+[0-9]+ B/op\s+[0-9]+ allocs/op'
-stderr 'BenchmarkWithoutReportAllocs\s+5\s+[0-9]+ cycles/op$'
-! stderr 'BenchmarkWithoutReportAllocs\s+5\s+[0-9]+ cycles/op\s+[0-9]+ B/op'
+stderr 'BenchmarkWithReportAllocs\s+5\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op\s+[0-9]+ B/op\s+[0-9]+ allocs/op'
+stderr 'BenchmarkWithoutReportAllocs\s+5\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op$'
+! stderr 'BenchmarkWithoutReportAllocs\s+5\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op\s+[0-9]+ B/op'
 stderr 'ok      \.\s+\d+\.\d\ds'
 
 -- bench.gno --

@@ -3,23 +3,23 @@
 gno test -bench . -benchcount 5 .
 
 ! stdout .+
-stderr 'BenchmarkAlpha\s+5\s+[0-9]+ cycles/op'
-stderr 'BenchmarkBeta\s+5\s+[0-9]+ cycles/op'
-stderr 'BenchmarkGamma\s+5\s+[0-9]+ cycles/op'
+stderr 'BenchmarkAlpha\s+5\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op'
+stderr 'BenchmarkBeta\s+5\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op'
+stderr 'BenchmarkGamma\s+5\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op'
 stderr 'ok      \.\s+\d+\.\d\ds'
 
 gno test -bench Beta -benchcount 5 .
 
 ! stdout .+
 ! stderr 'BenchmarkAlpha\s'
-stderr 'BenchmarkBeta\s+5\s+[0-9]+ cycles/op'
+stderr 'BenchmarkBeta\s+5\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op'
 ! stderr 'BenchmarkGamma\s'
 stderr 'ok      \.\s+\d+\.\d\ds'
 
 gno test -bench 'Alpha$' -benchcount 5 .
 
 ! stdout .+
-stderr 'BenchmarkAlpha\s+5\s+[0-9]+ cycles/op'
+stderr 'BenchmarkAlpha\s+5\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op'
 ! stderr 'BenchmarkBeta\s'
 ! stderr 'BenchmarkGamma\s'
 stderr 'ok      \.\s+\d+\.\d\ds'

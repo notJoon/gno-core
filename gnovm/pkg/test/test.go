@@ -711,6 +711,7 @@ type benchmarkReport struct {
 	ReportAllocs bool
 	N            int
 	Cycles       int64
+	Gas          int64
 	AllocBytes   int64
 	Allocs       int64
 	Bytes        int64
@@ -722,48 +723,33 @@ type testFunc struct {
 	Filename string
 }
 
-func loadTestFuncs(pkgName string, tfiles *gno.FileSet) (rt []testFunc) {
+func loadFuncs(pkgName string, tfiles *gno.FileSet, prefix string) (rt []testFunc) {
 	for _, tf := range tfiles.Files {
 		for _, d := range tf.Decls {
-			if fd, ok := d.(*gno.FuncDecl); ok {
-				if fd.IsMethod {
-					continue
-				}
-				fname := string(fd.Name)
-				if strings.HasPrefix(fname, "Test") {
-					tf := testFunc{
-						Package:  pkgName,
-						Name:     fname,
-						Filename: tf.FileName,
-					}
-					rt = append(rt, tf)
-				}
+			fd, ok := d.(*gno.FuncDecl)
+			if !ok || fd.IsMethod {
+				continue
 			}
+			fname := string(fd.Name)
+			if !strings.HasPrefix(fname, prefix) {
+				continue
+			}
+			rt = append(rt, testFunc{
+				Package:  pkgName,
+				Name:     fname,
+				Filename: tf.FileName,
+			})
 		}
 	}
 	return
 }
 
+func loadTestFuncs(pkgName string, tfiles *gno.FileSet) (rt []testFunc) {
+	return loadFuncs(pkgName, tfiles, "Test")
+}
+
 func loadBenchFuncs(pkgName string, tfiles *gno.FileSet) (rt []testFunc) {
-	for _, tf := range tfiles.Files {
-		for _, d := range tf.Decls {
-			if fd, ok := d.(*gno.FuncDecl); ok {
-				if fd.IsMethod {
-					continue
-				}
-				fname := string(fd.Name)
-				if strings.HasPrefix(fname, "Benchmark") {
-					tf := testFunc{
-						Package:  pkgName,
-						Name:     fname,
-						Filename: tf.FileName,
-					}
-					rt = append(rt, tf)
-				}
-			}
-		}
-	}
-	return
+	return loadFuncs(pkgName, tfiles, "Benchmark")
 }
 
 func formatBenchmarkResult(name string, rep benchmarkReport, benchmem bool) string {
@@ -772,7 +758,8 @@ func formatBenchmarkResult(name string, rep benchmarkReport, benchmem bool) stri
 		n = 1
 	}
 	cyclesPerOp := rep.Cycles / n
-	line := fmt.Sprintf("%s\t%d\t%d cycles/op", name, rep.N, cyclesPerOp)
+	gasPerOp := rep.Gas / n
+	line := fmt.Sprintf("%s\t%d\t%d cycles/op\t%d gas/op", name, rep.N, cyclesPerOp, gasPerOp)
 	if rep.Bytes > 0 {
 		line += fmt.Sprintf("\t%d bytes/op", rep.Bytes)
 	}

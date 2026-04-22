@@ -3,9 +3,9 @@
 gno test -bench . -benchcount 3 .
 
 ! stdout .+
-stderr 'BenchmarkFirst\s+3\s+[0-9]+ cycles/op'
-stderr 'BenchmarkSecond\s+3\s+[0-9]+ cycles/op'
-stderr 'BenchmarkThird\s+3\s+[0-9]+ cycles/op'
+stderr 'BenchmarkFirst\s+3\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op'
+stderr 'BenchmarkSecond\s+3\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op'
+stderr 'BenchmarkThird\s+3\s+[0-9]+ cycles/op\s+[1-9][0-9]* gas/op'
 stderr 'ok      \.\s+\d+\.\d\ds'
 
 -- bench.gno --

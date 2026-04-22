@@ -15,6 +15,13 @@ func X_cycleCount(m *gnolang.Machine) int64 {
 	return m.Cycles
 }
 
+func X_gasConsumed(m *gnolang.Machine) int64 {
+	if m.GasMeter == nil {
+		return 0
+	}
+	return m.GasMeter.GasConsumed()
+}
+
 func X_allocBytes(m *gnolang.Machine) int64 {
 	if m.Alloc == nil {
 		return 0

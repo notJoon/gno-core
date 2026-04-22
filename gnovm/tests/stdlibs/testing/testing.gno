@@ -249,6 +249,7 @@ type BenchmarkReport struct {
 	ReportAllocs bool
 	N            int
 	Cycles       int64
+	Gas          int64
 	AllocBytes   int64
 	Allocs       int64
 	Bytes        int64
@@ -272,6 +273,7 @@ func (r *BenchmarkReport) marshal() string {
 		`,"ReportAllocs":` + reportAllocs +
 		`,"N":` + strconv.Itoa(r.N) +
 		`,"Cycles":` + strconv.FormatInt(r.Cycles, 10) +
+		`,"Gas":` + strconv.FormatInt(r.Gas, 10) +
 		`,"AllocBytes":` + strconv.FormatInt(r.AllocBytes, 10) +
 		`,"Allocs":` + strconv.FormatInt(r.Allocs, 10) +
 		`,"Bytes":` + strconv.FormatInt(r.Bytes, 10) +
@@ -294,9 +296,11 @@ type B struct {
 
 	timerOn           bool
 	startCycles       int64
+	startGas          int64
 	startAllocBytes   int64
 	startAllocCount   int64
 	elapsedCycles     int64
+	elapsedGas        int64
 	elapsedAllocBytes int64
 	elapsedAllocs     int64
 }
@@ -365,10 +369,12 @@ func (b *B) ReportMetric(n float64, unit string) {
 
 func (b *B) ResetTimer() {
 	b.elapsedCycles = 0
+	b.elapsedGas = 0
 	b.elapsedAllocBytes = 0
 	b.elapsedAllocs = 0
 	if b.timerOn {
 		b.startCycles = cycleCount()
+		b.startGas = gasConsumed()
 		b.startAllocBytes = allocBytes()
 		b.startAllocCount = allocCount()
 	}
@@ -419,6 +425,7 @@ func (b *B) StartTimer() {
 		return
 	}
 	b.startCycles = cycleCount()
+	b.startGas = gasConsumed()
 	b.startAllocBytes = allocBytes()
 	b.startAllocCount = allocCount()
 	b.timerOn = true
@@ -429,6 +436,7 @@ func (b *B) StopTimer() {
 		return
 	}
 	b.elapsedCycles += cycleCount() - b.startCycles
+	b.elapsedGas += gasConsumed() - b.startGas
 	b.elapsedAllocBytes += allocBytes() - b.startAllocBytes
 	b.elapsedAllocs += allocCount() - b.startAllocCount
 	b.timerOn = false
@@ -458,6 +466,7 @@ func (b *B) report() BenchmarkReport {
 		ReportAllocs: b.reportAllocs,
 		N:            b.N,
 		Cycles:       b.elapsedCycles,
+		Gas:          b.elapsedGas,
 		AllocBytes:   b.elapsedAllocBytes,
 		Allocs:       b.elapsedAllocs,
 		Bytes:        b.bytes,
@@ -639,6 +648,10 @@ func unixNano() int64
 
 // used to calculate deterministic benchmark cycle counts; only present in testing stdlibs
 func cycleCount() int64
+
+// used to read the deterministic gas counter shared by cycles, allocator, GC, and native
+// functions; only present in testing stdlibs
+func gasConsumed() int64
 
 // used to calculate deterministic benchmark allocation bytes; only present in testing stdlibs
 func allocBytes() int64
