@@ -57,8 +57,6 @@ parse_args() {
     done
 }
 
-# env checks
-
 detect_platform() {
     case "$(uname -s)" in
         Linux)  OS="linux" ;;
@@ -82,11 +80,8 @@ check_deps() {
     else die "sha256sum or shasum is required"
 
     fi
-    # Prefer jq for JSON parsing; fall back to awk (see asset_url).
     if command -v jq >/dev/null 2>&1; then JSON="jq"; else JSON="awk"; fi
 }
-
-# installation
 
 # Stack-based xtrace suspension; safe across nested callers and subshells.
 suspend_xtrace() {
@@ -104,8 +99,8 @@ restore_xtrace() {
     esac
 }
 
-# Fetch GitHub API metadata. Do not use for asset downloads: asset URLs
-# redirect to another host, and custom curl headers survive redirects.
+# Do not use for asset downloads: asset URLs redirect to another host and
+# curl headers survive cross-host redirects.
 api_get() {
     if [ -n "${GH_API_TOKEN:+x}" ]; then
         suspend_xtrace
@@ -118,7 +113,8 @@ api_get() {
     $CURL "$@"
 }
 
-# Resolve an asset API URL to its signed CDN URL without forwarding auth.
+# Intentionally omits -L: we need the redirect target (signed URL), not
+# the asset content, and Authorization must not reach the CDN host.
 resolve_asset() {
     if [ -n "${GH_API_TOKEN:+x}" ]; then
         suspend_xtrace
@@ -148,7 +144,6 @@ capture_github_token() {
     fi
 }
 
-# Emit .tag_name from the release metadata on stdout.
 release_tag() {
     if [ "$JSON" = "jq" ]; then
         jq -r '.tag_name' "$TMP/release.json"
@@ -157,7 +152,6 @@ release_tag() {
     fi
 }
 
-# Emit the most recent v* release tag from $TMP/releases.json on stdout.
 # /releases/latest may point at a chain/* tag with no binaries, so we walk
 # the list and pick the first non-prerelease goreleaser-built tag.
 latest_v_tag() {
@@ -183,9 +177,8 @@ latest_v_tag() {
     fi
 }
 
-# Emit the API URL for asset $1 from the release metadata on stdout.
-# Prefers jq; the awk fallback scans pretty-printed JSON and relies on the
-# current field order ("url" before "name" within each asset).
+# The awk fallback scans pretty-printed JSON and relies on the current
+# field order ("url" before "name" within each asset).
 asset_url() {
     if [ "$JSON" = "jq" ]; then
         jq -r --arg n "$1" '.assets[] | select(.name == $n) | .url' "$TMP/release.json"
