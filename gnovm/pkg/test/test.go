@@ -136,6 +136,12 @@ type TestOptions struct {
 
 	// Flag to filter tests to run.
 	RunFlag string
+	// Flag to filter benchmarks to run.
+	BenchFlag string
+	// Fixed benchmark iteration count.
+	BenchCount int
+	// Whether to print benchmark memory metrics.
+	BenchMem bool
 	// Flag to stop executing as soon a test fails.
 	FailfastFlag bool
 	// Whether to update filetest directives.
@@ -296,6 +302,41 @@ func Test(mpkg *std.MemPackage, fsDir string, opts *TestOptions) error {
 			err := opts.runTestFiles(itmpkg, itset, tgs)
 			if err != nil {
 				errs = multierr.Append(errs, err)
+			}
+		}
+	}
+
+	if opts.BenchFlag != "" && len(tset.Files)+len(itset.Files) > 0 {
+		if opts.BenchCount <= 0 {
+			errs = multierr.Append(errs, fmt.Errorf("-benchcount must be greater than 0"))
+		} else {
+			// Run benchmark files in pkg.
+			if len(tset.Files) > 0 {
+				err := opts.runBenchmarkFiles(mpkg, tset, tgs)
+				if err != nil {
+					errs = multierr.Append(errs, err)
+				}
+			}
+
+			// Benchmark xxx_test pkg.
+			if len(itset.Files) > 0 {
+				var mpkgType gno.MemPackageType
+				if gno.IsStdlib(mpkg.Path) {
+					mpkgType = gno.MPStdlibIntegration
+				} else {
+					mpkgType = gno.MPUserIntegration
+				}
+				itmpkg := &std.MemPackage{
+					Type:  mpkgType,
+					Name:  mpkg.Name + "_test",
+					Path:  mpkg.Path + "_test",
+					Files: itfiles,
+				}
+
+				err := opts.runBenchmarkFiles(itmpkg, itset, tgs)
+				if err != nil {
+					errs = multierr.Append(errs, err)
+				}
 			}
 		}
 	}
@@ -542,10 +583,131 @@ func (opts *TestOptions) runTestFiles(
 	return errs
 }
 
+func (opts *TestOptions) runBenchmarkFiles(
+	mpkg *std.MemPackage,
+	files *gno.FileSet,
+	tgs gno.TransactionStore,
+) (errs error) {
+	var m *gno.Machine
+	defer func() {
+		if r := recover(); r != nil {
+			if st := m.ExceptionStacktrace(); st != "" {
+				errs = multierr.Append(errors.New(st), errs)
+			}
+			errs = multierr.Append(
+				fmt.Errorf("panic: %v\ngo stacktrace:\n%v\ngno machine: %v\ngno stacktrace:\n%v",
+					r, string(debug.Stack()), m.String(), m.Stacktrace()),
+				errs,
+			)
+		}
+	}()
+
+	benchmarks := loadBenchFuncs(mpkg.Name, files)
+	filter := splitRegexp(opts.BenchFlag)
+
+	alloc := gno.NewAllocator(math.MaxInt64)
+	opts.TestStore.SetLogStoreOps(nil)
+
+	m = Machine(tgs, opts.WriterForStore(), mpkg.Path, opts.Debug, nil)
+	m.Alloc = alloc
+	if tgs.GetMemPackage(mpkg.Path) == nil {
+		m.RunMemPackage(mpkg, false)
+	} else {
+		m.SetActivePackage(tgs.GetPackage(mpkg.Path, false))
+	}
+	pv := m.Package
+
+	for _, bf := range benchmarks {
+		if !shouldRun(filter, bf.Name) {
+			continue
+		}
+
+		m = Machine(tgs, opts.WriterForStore(), mpkg.Path, opts.Debug, store.NewInfiniteGasMeter())
+		m.Alloc = alloc.Reset()
+		m.SetActivePackage(pv)
+
+		testingpv := m.Store.GetPackage("testing", false)
+		testingtv := gno.TypedValue{T: &gno.PackageType{}, V: testingpv}
+		testingcx := &gno.ConstExpr{TypedValue: testingtv}
+		benchfv := m.Eval(gno.Nx(bf.Name))[0].GetFunc()
+
+		var runBenchX gno.Expr
+		var runBench gno.TypedValue
+		var runBenchF string
+		var runBenchCur gno.Expr
+		if benchfv.IsCrossing() {
+			m.SetActivePackage(testingpv)
+			runBenchX = gno.Nx("runBenchmark_cur")
+			runBench = m.Eval(runBenchX)[0]
+			runBenchF = "F_cur"
+			runBenchCur = gno.NewConstExpr(gno.Nx(".cur"), gno.NewConcreteRealm(mpkg.Path))
+			m.SetActivePackage(pv)
+		} else {
+			runBenchX = gno.Sel(testingcx, "RunBenchmark")
+			runBench = m.Eval(runBenchX)[0]
+			runBenchF = "F"
+			runBenchCur = gno.Nx("nil")
+		}
+		runBenchCX := gno.NewConstExpr(runBenchX, runBench)
+
+		eval := m.Eval(gno.Call(
+			runBenchCX,
+			gno.Num(strconv.Itoa(opts.BenchCount)),
+			gno.Nx(strconv.FormatBool(opts.Verbose)),
+			&gno.CompositeLitExpr{
+				Type: gno.Sel(testingcx, "InternalBenchmark"),
+				Elts: gno.KeyValueExprs{
+					{Key: gno.X("Name"), Value: gno.Str(bf.Name)},
+					{Key: gno.X(runBenchF), Value: gno.Nx(bf.Name)},
+					{Key: gno.X("Cur"), Value: runBenchCur},
+				},
+			},
+		))
+
+		ret := eval[0].GetString()
+		if ret == "" {
+			err := fmt.Errorf("failed to execute benchmark: %q", bf.Name)
+			errs = multierr.Append(errs, err)
+			fmt.Fprintf(opts.Error, "--- FAIL: %s [internal gno benchmark error]", bf.Name)
+			continue
+		}
+
+		var rep benchmarkReport
+		err := json.Unmarshal([]byte(ret), &rep)
+		if err != nil {
+			errs = multierr.Append(errs, err)
+			fmt.Fprintf(opts.Error, "--- FAIL: %s [internal gno benchmark error]", bf.Name)
+			continue
+		}
+
+		if rep.Failed {
+			err := fmt.Errorf("failed: %q", bf.Name)
+			errs = multierr.Append(errs, err)
+			if opts.FailfastFlag {
+				return errs
+			}
+		}
+
+		fmt.Fprintln(opts.Error, formatBenchmarkResult(bf.Name, rep, opts.BenchMem))
+	}
+
+	return errs
+}
+
 // report is a mirror of Gno's stdlibs/testing.Report.
 type report struct {
 	Failed  bool
 	Skipped bool
+}
+
+type benchmarkReport struct {
+	Failed     bool
+	Skipped    bool
+	N          int
+	Cycles     int64
+	AllocBytes int64
+	Allocs     int64
+	Bytes      int64
 }
 
 type testFunc struct {
@@ -574,6 +736,44 @@ func loadTestFuncs(pkgName string, tfiles *gno.FileSet) (rt []testFunc) {
 		}
 	}
 	return
+}
+
+func loadBenchFuncs(pkgName string, tfiles *gno.FileSet) (rt []testFunc) {
+	for _, tf := range tfiles.Files {
+		for _, d := range tf.Decls {
+			if fd, ok := d.(*gno.FuncDecl); ok {
+				if fd.IsMethod {
+					continue
+				}
+				fname := string(fd.Name)
+				if strings.HasPrefix(fname, "Benchmark") {
+					tf := testFunc{
+						Package:  pkgName,
+						Name:     fname,
+						Filename: tf.FileName,
+					}
+					rt = append(rt, tf)
+				}
+			}
+		}
+	}
+	return
+}
+
+func formatBenchmarkResult(name string, rep benchmarkReport, benchmem bool) string {
+	n := int64(rep.N)
+	if n <= 0 {
+		n = 1
+	}
+	cyclesPerOp := rep.Cycles / n
+	line := fmt.Sprintf("%s\t%d\t%d cycles/op", name, rep.N, cyclesPerOp)
+	if rep.Bytes > 0 {
+		line += fmt.Sprintf("\t%d bytes/op", rep.Bytes)
+	}
+	if benchmem {
+		line += fmt.Sprintf("\t%d B/op\t%d allocs/op", rep.AllocBytes/n, rep.Allocs/n)
+	}
+	return line
 }
 
 // parseMemPackageTests parses test files (skipping filetests) in the mpkg.
