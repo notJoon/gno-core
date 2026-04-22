@@ -711,29 +711,6 @@ func (opts *TestOptions) runBenchmarkFiles(
 	return errs
 }
 
-// report is a mirror of Gno's stdlibs/testing.Report.
-type report struct {
-	Failed  bool
-	Skipped bool
-}
-
-type benchmarkReport struct {
-	Name         string
-	Failed       bool
-	Skipped      bool
-	ReportAllocs bool
-	N            int
-	Cycles       int64
-	Gas          int64
-	AllocBytes   int64
-	Allocs       int64
-	Bytes        int64
-}
-
-type benchmarkReports struct {
-	Reports []benchmarkReport
-}
-
 type testFunc struct {
 	Package  string
 	Name     string

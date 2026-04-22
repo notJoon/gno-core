@@ -244,9 +244,9 @@ func (t *T) report() Report {
 }
 
 type BenchmarkReport struct {
+	Report
+
 	Name         string
-	Failed       bool
-	Skipped      bool
 	ReportAllocs bool
 	N            int
 	Cycles       int64
@@ -522,9 +522,11 @@ func (b *B) report() BenchmarkReport {
 		b.StopTimer()
 	}
 	return BenchmarkReport{
+		Report: Report{
+			Failed:  b.Failed(),
+			Skipped: b.skipped,
+		},
 		Name:         b.name,
-		Failed:       b.Failed(),
-		Skipped:      b.skipped,
 		ReportAllocs: b.reportAllocs,
 		N:            b.N,
 		Cycles:       b.elapsedCycles,
