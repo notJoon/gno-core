@@ -388,9 +388,127 @@ func Test(mpkg *std.MemPackage, fsDir string, opts *TestOptions) error {
 	return errs
 }
 
-// Runs *_test.go tests.
-// Not the same as pkg/test/filetest runFiletests()
-// which runs *_filetest.go tests.
+// loadTestPackage ensures mpkg is materialised in tgs and returns its
+// package value for reuse across per-iteration machines. If mpkg was
+// eagerly loaded earlier, the outer machine just re-activates it
+// instead of re-running RunMemPackage.
+func (opts *TestOptions) loadTestPackage(
+	mpkg *std.MemPackage, tgs gno.TransactionStore, alloc *gno.Allocator,
+) *gno.PackageValue {
+	m := Machine(tgs, opts.WriterForStore(), mpkg.Path, opts.Debug, nil)
+	m.Alloc = alloc
+	if tgs.GetMemPackage(mpkg.Path) == nil {
+		m.RunMemPackage(mpkg, false)
+	} else {
+		m.SetActivePackage(tgs.GetPackage(mpkg.Path, false))
+	}
+	return m.Package
+}
+
+// panicError formats a run-loop panic into a single error that captures
+// both the Go-side stack and, if available, the Gno machine state. m may
+// be nil if the panic fired before the per-iteration Machine was built.
+func panicError(r any, m *gno.Machine) error {
+	var mStr, stackStr, exStack string
+	if m != nil {
+		mStr = m.String()
+		stackStr = m.Stacktrace().String()
+		exStack = m.ExceptionStacktrace()
+	}
+	err := fmt.Errorf(
+		"panic: %v\ngo stacktrace:\n%v\ngno machine: %v\ngno stacktrace:\n%v",
+		r, string(debug.Stack()), mStr, stackStr,
+	)
+	if exStack != "" {
+		return multierr.Combine(err, errors.New(exStack))
+	}
+	return err
+}
+
+// gnoRunnerSpec names the Gno-side testing entry points for one mode
+// (test vs benchmark). See testRunner and benchRunner.
+type gnoRunnerSpec struct {
+	internalType string // "InternalTest" / "InternalBenchmark"
+	runnerNonCur string // "RunTest" / "RunBenchmark"
+	runnerCur    string // "runTest_cur" / "runBenchmark_cur"
+}
+
+var (
+	testRunner  = gnoRunnerSpec{"InternalTest", "RunTest", "runTest_cur"}
+	benchRunner = gnoRunnerSpec{"InternalBenchmark", "RunBenchmark", "runBenchmark_cur"}
+)
+
+// call invokes testing.RunTest / RunBenchmark for a single discovered
+// func and returns the JSON report produced by the Gno-side runner. m
+// must already have a fresh GasMeter and a reset allocator.
+func (spec gnoRunnerSpec) call(
+	m *gno.Machine, pv *gno.PackageValue, f testFunc, extraArgs ...gno.Expr,
+) string {
+	testingpv := m.Store.GetPackage("testing", false)
+	testingcx := &gno.ConstExpr{TypedValue: gno.TypedValue{
+		T: &gno.PackageType{}, V: testingpv,
+	}}
+	fv := m.Eval(gno.Nx(f.Name))[0].GetFunc()
+
+	var runCX *gno.ConstExpr
+	var fField string
+	var curExpr gno.Expr
+	if fv.IsCrossing() {
+		// Run a test/benchmark with cur passed a special way.
+		//
+		// > TestSomething(cur realm, t *testing.T) {...}
+		// > BenchmarkSomething(cur realm, b *testing.B) {...}
+		//
+		// Normally this isn't possible because stdlibs/testing is a
+		// non-realm, so it cannot have `cur`. And while a realm could
+		// call `func(cur realm){...}(cross)`, some *_test.gno cases want
+		// `cur` to refer to the realm package, while `cur.Previous()`
+		// to refer to no realm--while the `func(cur realm){...}(cross)`
+		// method would have both previous to be the current realm.
+		//
+		// Extract unexposed testing.runTest_cur / runBenchmark_cur.
+		// The Eval must happen while testingpv is active so the
+		// unexposed name resolves; we switch pv back afterwards.
+		m.SetActivePackage(testingpv)
+		runX := gno.Nx(spec.runnerCur)
+		runCX = gno.NewConstExpr(runX, m.Eval(runX)[0])
+		fField = "F_cur"
+		curExpr = gno.NewConstExpr(gno.Nx(".cur"), gno.NewConcreteRealm(pv.PkgPath))
+		m.SetActivePackage(pv)
+	} else {
+		// The normal path used when `cur` isn't needed such as in p
+		// package tests/benchmarks, or in realm package tests/benchmarks
+		// where no non-crossing calls are made directly in the body of
+		// the func decl.
+		//
+		// > TestSomething(t *testing.T) {...}
+		// > BenchmarkSomething(b *testing.B) {...}
+		runX := gno.Sel(testingcx, spec.runnerNonCur)
+		runCX = gno.NewConstExpr(runX, m.Eval(runX)[0])
+		fField = "F"
+		curExpr = gno.Nx("nil")
+	}
+
+	// gno.Call's signature is (fn any, args ...any), so we build the arg
+	// list as []any and unpack the trailing positional args. The explicit
+	// runCX / InternalX composite lit bracket the mode-specific extras.
+	callArgs := make([]any, 0, len(extraArgs)+1)
+	for _, e := range extraArgs {
+		callArgs = append(callArgs, e)
+	}
+	callArgs = append(callArgs, &gno.CompositeLitExpr{ // final param: InternalTest / InternalBenchmark
+		Type: gno.Sel(testingcx, spec.internalType),
+		Elts: gno.KeyValueExprs{
+			{Key: gno.X("Name"), Value: gno.Str(f.Name)},
+			{Key: gno.X(fField), Value: gno.Nx(f.Name)},
+			{Key: gno.X("Cur"), Value: curExpr},
+		},
+	})
+	return m.Eval(gno.Call(runCX, callArgs...))[0].GetString()
+}
+
+// runTestFiles runs *_test.gno tests. Not the same as runFiletests,
+// which runs *_filetest.gno tests.
 func (opts *TestOptions) runTestFiles(
 	mpkg *std.MemPackage,
 	files *gno.FileSet,
@@ -399,14 +517,7 @@ func (opts *TestOptions) runTestFiles(
 	var m *gno.Machine
 	defer func() {
 		if r := recover(); r != nil {
-			if st := m.ExceptionStacktrace(); st != "" {
-				errs = multierr.Append(errors.New(st), errs)
-			}
-			errs = multierr.Append(
-				fmt.Errorf("panic: %v\ngo stacktrace:\n%v\ngno machine: %v\ngno stacktrace:\n%v",
-					r, string(debug.Stack()), m.String(), m.Stacktrace()),
-				errs,
-			)
+			errs = multierr.Append(panicError(r, m), errs)
 		}
 	}()
 
@@ -419,15 +530,7 @@ func (opts *TestOptions) runTestFiles(
 	// reset store ops, if any - we only need them for some filetests.
 	opts.TestStore.SetLogStoreOps(nil)
 
-	// Check if we already have the package - it may have been eagerly loaded.
-	m = Machine(tgs, opts.WriterForStore(), mpkg.Path, opts.Debug, nil)
-	m.Alloc = alloc
-	if tgs.GetMemPackage(mpkg.Path) == nil {
-		m.RunMemPackage(mpkg, false)
-	} else {
-		m.SetActivePackage(tgs.GetPackage(mpkg.Path, false))
-	}
-	pv := m.Package
+	pv := opts.loadTestPackage(mpkg, tgs, alloc)
 
 	// Load the test files into package and save.
 	// m.RunFiles(files.Files...)
@@ -444,50 +547,6 @@ func (opts *TestOptions) runTestFiles(
 		m = Machine(tgs, opts.WriterForStore(), mpkg.Path, opts.Debug, store.NewInfiniteGasMeter())
 		m.Alloc = alloc.Reset()
 		m.SetActivePackage(pv)
-
-		testingpv := m.Store.GetPackage("testing", false)
-		testingtv := gno.TypedValue{T: &gno.PackageType{}, V: testingpv}
-		testingcx := &gno.ConstExpr{TypedValue: testingtv}
-		testfv := m.Eval(gno.Nx(tf.Name))[0].GetFunc()
-
-		var runTestX gno.Expr
-		var runTest gno.TypedValue
-		var runTestF string
-		var runTestCur gno.Expr
-		if testfv.IsCrossing() {
-			// Run a test with cur passed a special way.
-			//
-			// > TestSomething(cur realm, t *testing.T) {...}
-			//
-			// Normally this isn't possible because
-			// stdlibs/testing is a non-realm, so it cannot
-			// have `cur`. And while a realm could call `func(cur
-			// realm){...}(cross)`, some *_test.gno test cases want
-			// `cur` to refer to the realm package, while
-			// `cur.Previous()` to refer to no realm--while the
-			// `func(cur realm){...}(cross)` method would have both
-			// previous to be the current realm.
-
-			// Extract unexposed testing.runTestWithRealm.
-			m.SetActivePackage(testingpv)
-			runTestX = gno.Nx("runTest_cur")
-			runTest = m.Eval(runTestX)[0]
-			runTestF = "F_cur"
-			runTestCur = gno.NewConstExpr(gno.Nx(".cur"), gno.NewConcreteRealm(mpkg.Path))
-			m.SetActivePackage(pv)
-		} else {
-			// The normal way to test if `cur` isn't needed such as
-			// in p package tests, or in realm package tests where
-			// no non-crossing calls are made directly in the body
-			// of the test func decl.
-			//
-			// > TestSomething(t *testing.T) {...}
-			runTestX = gno.Sel(testingcx, "RunTest")
-			runTest = m.Eval(runTestX)[0]
-			runTestF = "F"
-			runTestCur = gno.Nx("nil")
-		}
-		runTestCX := gno.NewConstExpr(runTestX, runTest)
 
 		if opts.Debug {
 			fileContent := func(ppath, name string) string {
@@ -506,22 +565,12 @@ func (opts *TestOptions) runTestFiles(
 			m.Debugger.Enable(os.Stdin, os.Stdout, fileContent)
 		}
 
-		eval := m.Eval(gno.Call(
-			runTestCX,                                     // Call testing.RunTest
+		ret := testRunner.call(m, pv, tf,
 			gno.Str(opts.RunFlag),                         // run flag
 			gno.Nx(strconv.FormatBool(opts.Verbose)),      // is verbose?
 			gno.Nx(strconv.FormatBool(opts.FailfastFlag)), // stop as soon as a test fails
-			&gno.CompositeLitExpr{ // Third param, the testing.InternalTest
-				Type: gno.Sel(testingcx, "InternalTest"),
-				Elts: gno.KeyValueExprs{
-					// XXX Consider this.
-					// {Key: gno.X("Name"), Value: gno.Str(mpkg.Path + "/" + tf.Filename + "." + tf.Name)},
-					{Key: gno.X("Name"), Value: gno.Str(tf.Name)},
-					{Key: gno.X(runTestF), Value: gno.Nx(tf.Name)},
-					{Key: gno.X("Cur"), Value: runTestCur},
-				},
-			},
-		))
+		)
+
 		if opts.Verbose {
 			fmt.Fprintf(opts.Error, "--- GAS:  %d\n", m.GasMeter.GasConsumed())
 		}
@@ -537,7 +586,6 @@ func (opts *TestOptions) runTestFiles(
 			}
 		}
 
-		ret := eval[0].GetString()
 		if ret == "" {
 			err := fmt.Errorf("failed to execute unit test: %q", tf.Name)
 			errs = multierr.Append(errs, err)
@@ -591,14 +639,7 @@ func (opts *TestOptions) runBenchmarkFiles(
 	var m *gno.Machine
 	defer func() {
 		if r := recover(); r != nil {
-			if st := m.ExceptionStacktrace(); st != "" {
-				errs = multierr.Append(errors.New(st), errs)
-			}
-			errs = multierr.Append(
-				fmt.Errorf("panic: %v\ngo stacktrace:\n%v\ngno machine: %v\ngno stacktrace:\n%v",
-					r, string(debug.Stack()), m.String(), m.Stacktrace()),
-				errs,
-			)
+			errs = multierr.Append(panicError(r, m), errs)
 		}
 	}()
 
@@ -606,16 +647,10 @@ func (opts *TestOptions) runBenchmarkFiles(
 	filter := splitRegexp(opts.BenchFlag)
 
 	alloc := gno.NewAllocator(math.MaxInt64)
+	// reset store ops, if any - we only need them for some filetests.
 	opts.TestStore.SetLogStoreOps(nil)
 
-	m = Machine(tgs, opts.WriterForStore(), mpkg.Path, opts.Debug, nil)
-	m.Alloc = alloc
-	if tgs.GetMemPackage(mpkg.Path) == nil {
-		m.RunMemPackage(mpkg, false)
-	} else {
-		m.SetActivePackage(tgs.GetPackage(mpkg.Path, false))
-	}
-	pv := m.Package
+	pv := opts.loadTestPackage(mpkg, tgs, alloc)
 
 	for _, bf := range benchmarks {
 		if !shouldRun(filter, bf.Name) {
@@ -626,46 +661,12 @@ func (opts *TestOptions) runBenchmarkFiles(
 		m.Alloc = alloc.Reset()
 		m.SetActivePackage(pv)
 
-		testingpv := m.Store.GetPackage("testing", false)
-		testingtv := gno.TypedValue{T: &gno.PackageType{}, V: testingpv}
-		testingcx := &gno.ConstExpr{TypedValue: testingtv}
-		benchfv := m.Eval(gno.Nx(bf.Name))[0].GetFunc()
+		ret := benchRunner.call(m, pv, bf,
+			gno.Str(opts.BenchFlag),                  // bench filter regex (applied inside Gno for sub-benches)
+			gno.Num(strconv.Itoa(opts.BenchCount)),   // fixed N per run
+			gno.Nx(strconv.FormatBool(opts.Verbose)), // is verbose?
+		)
 
-		var runBenchX gno.Expr
-		var runBench gno.TypedValue
-		var runBenchF string
-		var runBenchCur gno.Expr
-		if benchfv.IsCrossing() {
-			m.SetActivePackage(testingpv)
-			runBenchX = gno.Nx("runBenchmark_cur")
-			runBench = m.Eval(runBenchX)[0]
-			runBenchF = "F_cur"
-			runBenchCur = gno.NewConstExpr(gno.Nx(".cur"), gno.NewConcreteRealm(mpkg.Path))
-			m.SetActivePackage(pv)
-		} else {
-			runBenchX = gno.Sel(testingcx, "RunBenchmark")
-			runBench = m.Eval(runBenchX)[0]
-			runBenchF = "F"
-			runBenchCur = gno.Nx("nil")
-		}
-		runBenchCX := gno.NewConstExpr(runBenchX, runBench)
-
-		eval := m.Eval(gno.Call(
-			runBenchCX,
-			gno.Str(opts.BenchFlag),
-			gno.Num(strconv.Itoa(opts.BenchCount)),
-			gno.Nx(strconv.FormatBool(opts.Verbose)),
-			&gno.CompositeLitExpr{
-				Type: gno.Sel(testingcx, "InternalBenchmark"),
-				Elts: gno.KeyValueExprs{
-					{Key: gno.X("Name"), Value: gno.Str(bf.Name)},
-					{Key: gno.X(runBenchF), Value: gno.Nx(bf.Name)},
-					{Key: gno.X("Cur"), Value: runBenchCur},
-				},
-			},
-		))
-
-		ret := eval[0].GetString()
 		if ret == "" {
 			err := fmt.Errorf("failed to execute benchmark: %q", bf.Name)
 			errs = multierr.Append(errs, err)
