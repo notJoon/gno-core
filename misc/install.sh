@@ -88,15 +88,31 @@ check_deps() {
 
 # installation
 
+# Stack-based xtrace suspension; safe across nested callers and subshells.
+suspend_xtrace() {
+    case "$-" in
+        *x*) _xt_stack="1${_xt_stack-}"; set +x ;;
+        *)   _xt_stack="0${_xt_stack-}" ;;
+    esac
+}
+
+restore_xtrace() {
+    case "${_xt_stack-}" in
+        1*) _xt_stack="${_xt_stack#?}"; set -x ;;
+        0*) _xt_stack="${_xt_stack#?}" ;;
+        *)  : ;;
+    esac
+}
+
 # Fetch GitHub API metadata. Do not use for asset downloads: asset URLs
 # redirect to another host, and custom curl headers survive redirects.
 api_get() {
     if [ -n "${GH_API_TOKEN:+x}" ]; then
-        case "$-" in *x*) _api_xt=1; set +x ;; *) _api_xt=0 ;; esac
+        suspend_xtrace
         printf 'header = "Authorization: Bearer %s"\n' "$GH_API_TOKEN" \
             | $CURL --config - "$@"
         _rc=$?
-        [ "$_api_xt" = 1 ] && set -x
+        restore_xtrace
         return $_rc
     fi
     $CURL "$@"
@@ -105,7 +121,7 @@ api_get() {
 # Resolve an asset API URL to its signed CDN URL without forwarding auth.
 resolve_asset() {
     if [ -n "${GH_API_TOKEN:+x}" ]; then
-        case "$-" in *x*) _asset_xt=1; set +x ;; *) _asset_xt=0 ;; esac
+        suspend_xtrace
         printf 'header = "Authorization: Bearer %s"\n' "$GH_API_TOKEN" \
             | curl --proto =https --tlsv1.2 -fsS --config - \
                 -H "Accept: application/octet-stream" \
@@ -113,7 +129,7 @@ resolve_asset() {
                 --retry 3 --retry-delay 2 \
                 "$1"
         _rc=$?
-        [ "$_asset_xt" = 1 ] && set -x
+        restore_xtrace
         return $_rc
     fi
     curl --proto =https --tlsv1.2 -fsS \
@@ -127,10 +143,10 @@ resolve_asset() {
 capture_github_token() {
     GH_API_TOKEN=
     if [ -n "${GITHUB_TOKEN:+x}" ]; then
-        case "$-" in *x*) _capture_xt=1; set +x ;; *) _capture_xt=0 ;; esac
+        suspend_xtrace
         GH_API_TOKEN=$GITHUB_TOKEN
         unset GITHUB_TOKEN
-        [ "$_capture_xt" = 1 ] && set -x
+        restore_xtrace
     fi
 }
 
@@ -223,7 +239,7 @@ install_gno() {
 
     log "downloading $ARCHIVE"
     # Signed CDN URLs carry short-lived query credentials; keep them out of xtrace.
-    case "$-" in *x*) _download_xt=1; set +x ;; *) _download_xt=0 ;; esac
+    suspend_xtrace
     ARCHIVE_SIGNED="$(resolve_asset "$ARCHIVE_URL")"
     [ -n "$ARCHIVE_SIGNED" ] || die "could not resolve $ARCHIVE download URL"
     $CURL -o "$TMP/$ARCHIVE"      "$ARCHIVE_SIGNED" || die "archive download failed"
@@ -231,7 +247,7 @@ install_gno() {
     SUMS_SIGNED="$(resolve_asset "$SUMS_URL")"
     [ -n "$SUMS_SIGNED" ] || die "could not resolve checksums.txt download URL"
     $CURL -o "$TMP/checksums.txt" "$SUMS_SIGNED"    || die "checksums download failed"
-    [ "$_download_xt" = 1 ] && set -x
+    restore_xtrace
 
     expected="$(awk -v n="$ARCHIVE" '$2 == n {print $1; exit}' "$TMP/checksums.txt")"
     [ -n "$expected" ] || die "$ARCHIVE not listed in checksums.txt"
@@ -247,15 +263,18 @@ install_gno() {
         components="$COMPONENTS"
     fi
     missing=""
+    installed_count=0
     for c in $components; do
         if [ ! -f "$TMP/ext/$c" ]; then
             missing="${missing} ${c}"
             continue
         fi
         install -m 0755 "$TMP/ext/$c" "$INSTALL_DIR/$c"
+        installed_count=$((installed_count + 1))
         # Best-effort Gatekeeper unblock on macOS; harmless on Linux.
         [ "$OS" = "darwin" ] && xattr -d com.apple.quarantine "$INSTALL_DIR/$c" 2>/dev/null || true
     done
+    [ "$installed_count" -gt 0 ] || die "no expected binaries found in $ARCHIVE (missing:${missing})"
     [ -z "$missing" ] || log "warning: expected binaries missing from $ARCHIVE:${missing}"
 
     log "installed into $INSTALL_DIR"
@@ -293,7 +312,7 @@ uninstall_gno() {
         gobin="$(go env GOPATH 2>/dev/null)/bin"
         if [ "$gobin" != "/bin" ]; then
             log "removing legacy binaries from $gobin"
-            for c in gno gnokey gnodev gnobro; do
+            for c in $FULL_COMPONENTS; do
                 rm -f "$gobin/$c"
             done
         fi
