@@ -652,6 +652,7 @@ func (opts *TestOptions) runBenchmarkFiles(
 
 		eval := m.Eval(gno.Call(
 			runBenchCX,
+			gno.Str(opts.BenchFlag),
 			gno.Num(strconv.Itoa(opts.BenchCount)),
 			gno.Nx(strconv.FormatBool(opts.Verbose)),
 			&gno.CompositeLitExpr{
@@ -672,28 +673,38 @@ func (opts *TestOptions) runBenchmarkFiles(
 			continue
 		}
 
-		var rep benchmarkReport
-		err := json.Unmarshal([]byte(ret), &rep)
+		var reps benchmarkReports
+		err := json.Unmarshal([]byte(ret), &reps)
 		if err != nil {
 			errs = multierr.Append(errs, err)
 			fmt.Fprintf(opts.Error, "--- FAIL: %s [internal gno benchmark error]", bf.Name)
 			continue
 		}
 
-		if rep.Failed {
-			err := fmt.Errorf("failed: %q", bf.Name)
-			errs = multierr.Append(errs, err)
-			if opts.FailfastFlag {
-				return errs
+		failfast := false
+		for _, rep := range reps.Reports {
+			name := rep.Name
+			if name == "" {
+				name = bf.Name
 			}
-			continue
+			if rep.Failed {
+				err := fmt.Errorf("failed: %q", name)
+				errs = multierr.Append(errs, err)
+				if opts.FailfastFlag {
+					failfast = true
+					break
+				}
+				continue
+			}
+			if rep.Skipped {
+				fmt.Fprintf(opts.Error, "--- SKIP: %s\n", name)
+				continue
+			}
+			fmt.Fprintln(opts.Error, formatBenchmarkResult(name, rep, opts.BenchMem))
 		}
-		if rep.Skipped {
-			fmt.Fprintf(opts.Error, "--- SKIP: %s\n", bf.Name)
-			continue
+		if failfast {
+			return errs
 		}
-
-		fmt.Fprintln(opts.Error, formatBenchmarkResult(bf.Name, rep, opts.BenchMem))
 	}
 
 	return errs
@@ -706,6 +717,7 @@ type report struct {
 }
 
 type benchmarkReport struct {
+	Name         string
 	Failed       bool
 	Skipped      bool
 	ReportAllocs bool
@@ -715,6 +727,10 @@ type benchmarkReport struct {
 	AllocBytes   int64
 	Allocs       int64
 	Bytes        int64
+}
+
+type benchmarkReports struct {
+	Reports []benchmarkReport
 }
 
 type testFunc struct {

@@ -14,11 +14,28 @@ func Test_B_SetParallelism_Unsupported(t *T) {
 	})
 }
 
-func Test_B_Run_Unsupported(t *T) {
-	expectPanic(t, "testing: B.Run is not supported", func() {
-		b := &B{}
-		b.Run("sub", func(b *B) {})
+func Test_B_Nested_Run_Panics(t *T) {
+	expectPanic(t, "testing: nested B.Run is not yet supported", func() {
+		parent := &B{}
+		sub := &B{parent: parent}
+		sub.Run("inner", func(b *B) {})
 	})
+}
+
+func Test_B_Run_PausesAndResumesParentTimer(t *T) {
+	on := &B{N: 1, name: "bench"}
+	on.StartTimer()
+	on.Run("sub", func(sub *B) {})
+	if !on.timerOn {
+		t.Errorf("parent timer should resume to ON after b.Run returned")
+	}
+	on.StopTimer()
+
+	off := &B{N: 1, name: "bench2"}
+	off.Run("sub", func(sub *B) {})
+	if off.timerOn {
+		t.Errorf("parent timer should stay OFF when it wasn't running before b.Run")
+	}
 }
 
 func Test_B_Setenv_Unsupported(t *T) {
