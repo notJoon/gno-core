@@ -686,6 +686,11 @@ func (opts *TestOptions) runBenchmarkFiles(
 			if opts.FailfastFlag {
 				return errs
 			}
+			continue
+		}
+		if rep.Skipped {
+			fmt.Fprintf(opts.Error, "--- SKIP: %s\n", bf.Name)
+			continue
 		}
 
 		fmt.Fprintln(opts.Error, formatBenchmarkResult(bf.Name, rep, opts.BenchMem))
@@ -701,13 +706,14 @@ type report struct {
 }
 
 type benchmarkReport struct {
-	Failed     bool
-	Skipped    bool
-	N          int
-	Cycles     int64
-	AllocBytes int64
-	Allocs     int64
-	Bytes      int64
+	Failed       bool
+	Skipped      bool
+	ReportAllocs bool
+	N            int
+	Cycles       int64
+	AllocBytes   int64
+	Allocs       int64
+	Bytes        int64
 }
 
 type testFunc struct {
@@ -770,7 +776,7 @@ func formatBenchmarkResult(name string, rep benchmarkReport, benchmem bool) stri
 	if rep.Bytes > 0 {
 		line += fmt.Sprintf("\t%d bytes/op", rep.Bytes)
 	}
-	if benchmem {
+	if benchmem || rep.ReportAllocs {
 		line += fmt.Sprintf("\t%d B/op\t%d allocs/op", rep.AllocBytes/n, rep.Allocs/n)
 	}
 	return line
