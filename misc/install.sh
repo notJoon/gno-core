@@ -12,7 +12,6 @@ FULL_COMPONENTS="gno gnokey gnodev gnobro gnoweb gnoland"
 
 VERSION="${GNO_VERSION:-latest}"
 INSTALL_DIR="${GNO_INSTALL_DIR:-${HOME}/.gno/bin}"
-UNINSTALL=0
 FULL=0
 
 log() { printf '[gno-install] %s\n' "$1"; }
@@ -30,11 +29,11 @@ Flags:
   --version <tag>   install a specific release tag (default: latest)
   --dir <path>      install directory (default: $HOME/.gno/bin)
   --full            also install the validator node (gnoland)
-  --uninstall       remove installed binaries (including legacy source dir)
   --help            show this help
 
 By default installs: gno, gnokey, gnodev, gnobro, gnoweb.
 Use --full to additionally install gnoland (validator node).
+To remove an installation, see misc/uninstall.sh.
 
 Environment:
   GNO_VERSION       same as --version
@@ -47,12 +46,11 @@ EOF
 parse_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
-            --version)   [ $# -ge 2 ] || die "--version needs a value"; VERSION="$2"; shift 2 ;;
-            --dir)       [ $# -ge 2 ] || die "--dir needs a value"; INSTALL_DIR="$2"; shift 2 ;;
-            --full)      FULL=1; shift ;;
-            --uninstall) UNINSTALL=1; shift ;;
-            -h|--help)   show_help; exit 0 ;;
-            *)           die "unknown flag: $1 (try --help)" ;;
+            --version) [ $# -ge 2 ] || die "--version needs a value"; VERSION="$2"; shift 2 ;;
+            --dir)     [ $# -ge 2 ] || die "--dir needs a value"; INSTALL_DIR="$2"; shift 2 ;;
+            --full)    FULL=1; shift ;;
+            -h|--help) show_help; exit 0 ;;
+            *)         die "unknown flag: $1 (try --help)" ;;
         esac
     done
 }
@@ -301,37 +299,9 @@ install_gno() {
 EOF
 }
 
-# Removes binaries from the current install dir, and — for users migrating
-# from the previous source-build installer — also from $GOPATH/bin and the
-# legacy ~/.gno/src source checkout.
-uninstall_gno() {
-    log "removing from $INSTALL_DIR"
-    for c in $FULL_COMPONENTS; do
-        rm -f "$INSTALL_DIR/$c"
-    done
-    if command -v go >/dev/null 2>&1; then
-        gobin="$(go env GOPATH 2>/dev/null)/bin"
-        if [ "$gobin" != "/bin" ]; then
-            log "removing legacy binaries from $gobin"
-            for c in $FULL_COMPONENTS; do
-                rm -f "$gobin/$c"
-            done
-        fi
-    fi
-    if [ -d "$HOME/.gno/src" ]; then
-        log "removing legacy source dir $HOME/.gno/src"
-        rm -rf "$HOME/.gno/src"
-    fi
-    log "uninstalled"
-}
-
 main() {
     parse_args "$@"
     capture_github_token
-    if [ "$UNINSTALL" = 1 ]; then
-        uninstall_gno
-        exit 0
-    fi
     detect_platform
     check_deps
     install_gno
