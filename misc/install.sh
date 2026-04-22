@@ -102,15 +102,23 @@ restore_xtrace() {
 # Do not use for asset downloads: asset URLs redirect to another host and
 # curl headers survive cross-host redirects.
 api_get() {
+    _headers="$TMP/api_headers"
     if [ -n "${GH_API_TOKEN:+x}" ]; then
         suspend_xtrace
         printf 'header = "Authorization: Bearer %s"\n' "$GH_API_TOKEN" \
-            | $CURL --config - "$@"
+            | $CURL -D "$_headers" --config - "$@"
         _rc=$?
         restore_xtrace
-        return $_rc
+    else
+        $CURL -D "$_headers" "$@"
+        _rc=$?
     fi
-    $CURL "$@"
+    if [ "$_rc" -ne 0 ] && [ -z "${GH_API_TOKEN:+x}" ] && [ -f "$_headers" ] \
+        && grep -qi '^x-ratelimit-remaining:[[:space:]]*0[[:space:]]*$' "$_headers" 2>/dev/null; then
+        log "GitHub API rate limit exhausted (60/hour anonymous)" >&2
+        log "set GITHUB_TOKEN to authenticate; see --help" >&2
+    fi
+    return $_rc
 }
 
 # Intentionally omits -L: we need the redirect target (signed URL), not
