@@ -123,19 +123,17 @@ resolve_asset() {
     if [ -n "${GH_API_TOKEN:+x}" ]; then
         suspend_xtrace
         printf 'header = "Authorization: Bearer %s"\n' "$GH_API_TOKEN" \
-            | curl --proto =https --tlsv1.2 -fsS --config - \
+            | $CURL --config - \
                 -H "Accept: application/octet-stream" \
                 -o /dev/null -w '%{redirect_url}' \
-                --retry 3 --retry-delay 2 \
                 "$1"
         _rc=$?
         restore_xtrace
         return $_rc
     fi
-    curl --proto =https --tlsv1.2 -fsS \
+    $CURL \
         -H "Accept: application/octet-stream" \
         -o /dev/null -w '%{redirect_url}' \
-        --retry 3 --retry-delay 2 \
         "$1"
 }
 
@@ -201,7 +199,9 @@ asset_url() {
 
 install_gno() {
     # --proto =https and --tlsv1.2 harden the transport; --retry handles flaky nets.
-    CURL="curl --proto =https --tlsv1.2 -fsSL --retry 3 --retry-delay 2"
+    # -L is added per-call: resolve_asset needs the redirect URL (no follow),
+    # downloads of signed URLs follow redirects explicitly.
+    CURL="curl --proto =https --tlsv1.2 -fsS --retry 3 --retry-delay 2"
 
     if [ -n "${GH_API_TOKEN:+x}" ]; then
         log "authenticating GitHub API requests with GITHUB_TOKEN"
@@ -242,11 +242,11 @@ install_gno() {
     suspend_xtrace
     ARCHIVE_SIGNED="$(resolve_asset "$ARCHIVE_URL")"
     [ -n "$ARCHIVE_SIGNED" ] || die "could not resolve $ARCHIVE download URL"
-    $CURL -o "$TMP/$ARCHIVE"      "$ARCHIVE_SIGNED" || die "archive download failed"
+    $CURL -L -o "$TMP/$ARCHIVE"      "$ARCHIVE_SIGNED" || die "archive download failed"
 
     SUMS_SIGNED="$(resolve_asset "$SUMS_URL")"
     [ -n "$SUMS_SIGNED" ] || die "could not resolve checksums.txt download URL"
-    $CURL -o "$TMP/checksums.txt" "$SUMS_SIGNED"    || die "checksums download failed"
+    $CURL -L -o "$TMP/checksums.txt" "$SUMS_SIGNED"    || die "checksums download failed"
     restore_xtrace
 
     expected="$(awk -v n="$ARCHIVE" '$2 == n {print $1; exit}' "$TMP/checksums.txt")"
