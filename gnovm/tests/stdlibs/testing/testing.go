@@ -19,8 +19,7 @@ func X_allocBytes(m *gnolang.Machine) int64 {
 	if m.Alloc == nil {
 		return 0
 	}
-	_, bytes := m.Alloc.Status()
-	return bytes
+	return m.Alloc.TotalAllocBytes()
 }
 
 func X_allocCount(m *gnolang.Machine) int64 {

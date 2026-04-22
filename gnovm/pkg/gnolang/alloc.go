@@ -12,11 +12,12 @@ import (
 // (optionally?) condensed (objects to be GC'd will be discarded),
 // but for now, allocations strictly increment across the whole tx.
 type Allocator struct {
-	maxBytes  int64
-	bytes     int64
-	numAllocs int64
-	collect   func() (left int64, ok bool) // gc callback
-	gasMeter  store.GasMeter
+	maxBytes        int64
+	bytes           int64
+	numAllocs       int64
+	totalAllocBytes int64
+	collect         func() (left int64, ok bool) // gc callback
+	gasMeter        store.GasMeter
 }
 
 // for gonative, which doesn't consider the allocator.
@@ -115,13 +116,28 @@ func (alloc *Allocator) NumAllocs() int64 {
 	return alloc.numAllocs
 }
 
+func (alloc *Allocator) TotalAllocBytes() int64 {
+	if alloc == nil {
+		return 0
+	}
+	return alloc.totalAllocBytes
+}
+
 func (alloc *Allocator) Reset() *Allocator {
 	if alloc == nil {
 		return nil
 	}
 	alloc.bytes = 0
 	alloc.numAllocs = 0
+	alloc.totalAllocBytes = 0
 	return alloc
+}
+
+func (alloc *Allocator) resetLiveBytesForGC() {
+	if alloc == nil {
+		return
+	}
+	alloc.bytes = 0
 }
 
 // Recount adds size to bytes without charging gas.
@@ -140,9 +156,10 @@ func (alloc *Allocator) Fork() *Allocator {
 		return nil
 	}
 	return &Allocator{
-		maxBytes:  alloc.maxBytes,
-		bytes:     alloc.bytes,
-		numAllocs: alloc.numAllocs,
+		maxBytes:        alloc.maxBytes,
+		bytes:           alloc.bytes,
+		numAllocs:       alloc.numAllocs,
+		totalAllocBytes: alloc.totalAllocBytes,
 	}
 }
 
@@ -168,6 +185,7 @@ func (alloc *Allocator) Allocate(size int64) {
 		alloc.bytes += size
 	}
 	alloc.numAllocs++
+	alloc.totalAllocBytes += size
 
 	// Charge gas for every allocation unconditionally (cpu/throughput).
 	// This ensures repeated allocate-then-GC cycles are not free.
