@@ -1,23 +1,17 @@
 # ref: https://github.com/gnolang/gno/issues/1982
 
-mkdir $WORK/gnovm/tests
-symlink $WORK/gnovm/stdlibs -> $GNOROOT/gnovm/stdlibs
-symlink $WORK/gnovm/tests/stdlibs -> $GNOROOT/gnovm/tests/stdlibs
-env GNOROOT=$WORK
-
-gno test -v ./counter
+gno test -v .
 
 stderr '=== RUN   TestIncrement1'
 stderr '--- PASS: TestIncrement1'
 stderr '=== RUN   TestIncrement2'
 stderr '--- PASS: TestIncrement2'
 
--- gnowork.toml --
--- counter/gnomod.toml --
-module = "gno.land/p/demo/counter"
+-- gnomod.toml --
+module = "gno.test/p/integ/issue_1982"
 gno = "0.9"
 
--- counter/counter.gno --
+-- counter.gno --
 package counter
 
 var count int
@@ -26,7 +20,7 @@ func Increment() {
 	count++
 }
 
--- counter/counter_test.gno --
+-- counter_test.gno --
 package counter
 
 import "testing"

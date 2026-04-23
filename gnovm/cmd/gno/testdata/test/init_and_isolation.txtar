@@ -1,9 +1,4 @@
-mkdir $WORK/gnovm/tests
-symlink $WORK/gnovm/stdlibs -> $GNOROOT/gnovm/stdlibs
-symlink $WORK/gnovm/tests/stdlibs -> $GNOROOT/gnovm/tests/stdlibs
-env GNOROOT=$WORK
-
-gno test -v ./counter
+gno test -v .
 
 stderr '=== RUN   TestInitRan'
 stderr '--- PASS: TestInitRan'
@@ -12,12 +7,11 @@ stderr '--- PASS: TestStateResetBetweenTests_A'
 stderr '=== RUN   TestStateResetBetweenTests_B'
 stderr '--- PASS: TestStateResetBetweenTests_B'
 
--- gnowork.toml --
--- counter/gnomod.toml --
-module = "gno.land/p/demo/counter"
+-- gnomod.toml --
+module = "gno.test/p/integ/init_and_isolation"
 gno = "0.9"
 
--- counter/counter.gno --
+-- counter.gno --
 package counter
 
 var X int
@@ -26,7 +20,7 @@ func init() {
 	X = 42
 }
 
--- counter/counter_test.gno --
+-- counter_test.gno --
 package counter
 
 import "testing"
