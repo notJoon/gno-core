@@ -378,31 +378,47 @@ func (opts *TestOptions) runTestFiles(
 	// reset store ops, if any - we only need them for some filetests.
 	opts.TestStore.SetLogStoreOps(nil)
 
-	// Check if we already have the package - it may have been eagerly loaded.
+	// Derive the test-filtered mempackage so RunMemPackage below keeps
+	// *_test.gno files: MPUser/StdlibAll is demoted to Prod by
+	// AsRunnable() and strips tests unless pre-filtered with MPFTest
+	// (which produces an MPUser/StdlibTest type).
+	//
+	// NOTE: Integration mempackages are already runnable with their test
+	// files and must not be passed through MPFTest (which panics for
+	// MP*Integration).
+	tmpkg := mpkg
+	if mptype, ok := mpkg.Type.(gno.MemPackageType); ok && mptype.IsAll() {
+		tmpkg = gno.MPFTest.FilterMemPackage(mpkg)
+	}
+
+	// Eagerly load and preprocess the package once on tgs. This populates
+	// tgs.cacheNodes with the preprocessed PackageNode and its already-
+	// preprocessed FileNodes. Inner txns below see pn through the txlog
+	// overlay and create fresh PackageValues from it, avoiding re-parse
+	// and re-preprocess per test.
 	m = Machine(tgs, opts.WriterForStore(), mpkg.Path, opts.Debug, nil)
 	m.Alloc = alloc
 	if tgs.GetMemPackage(mpkg.Path) == nil {
-		m.RunMemPackage(mpkg, false)
+		m.RunMemPackage(tmpkg, false)
 	} else {
 		m.SetActivePackage(tgs.GetPackage(mpkg.Path, false))
 	}
-	pv := m.Package
-
-	// Load the test files into package and save.
-	// m.RunFiles(files.Files...)
+	pn := tgs.GetBlockNode(gno.PackageNodeLocation(mpkg.Path)).(*gno.PackageNode)
 
 	for _, tf := range tests {
-		// TODO(morgan): we could theoretically use wrapping on the baseStore
-		// and gno store to achieve per-test isolation. However, that requires
-		// some deeper changes, as ideally we'd:
-		// - Run the MemPackage independently (so it can also be run as a
-		//   consequence of an import)
-		// - Run the test files before this for loop (but persist it to store;
-		//   RunFiles doesn't do that currently)
-		// - Wrap here.
-		m = Machine(tgs, opts.WriterForStore(), mpkg.Path, opts.Debug, store.NewInfiniteGasMeter())
+		// Each test runs in its own nested transaction off tgs, producing
+		// a fresh PackageValue (own Block and file blocks, re-run var
+		// decls and init() funcs) from the shared preprocessed pn. The
+		// inner txn's isolated cacheObjects (see
+		// defaultStore.BeginTransaction) plus the fresh pv ensure
+		// package-level globals start from zero for every test. Dropping
+		// the inner txn without calling Write() discards any state
+		// changes the test made.
+		innerTxn := tgs.BeginTransaction(nil, nil, nil, nil)
+
+		m = Machine(innerTxn, opts.WriterForStore(), mpkg.Path, opts.Debug, store.NewInfiniteGasMeter())
 		m.Alloc = alloc.Reset()
-		m.SetActivePackage(pv)
+		pv := m.NewPackageInstance(pn)
 
 		testingpv := m.Store.GetPackage("testing", false)
 		testingtv := gno.TypedValue{T: &gno.PackageType{}, V: testingpv}

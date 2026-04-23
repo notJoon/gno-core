@@ -604,18 +604,9 @@ func (m *Machine) runFileDecls(withOverrides bool, fns ...*FileNode) []TypedValu
 	pb := pv.GetBlock(m.Store)
 	pn := pb.GetSource(m.Store).(*PackageNode)
 	fs := &FileSet{Files: fns}
-	fdeclared := map[Name]struct{}{}
 	if pn.FileSet == nil {
 		pn.FileSet = fs
 	} else {
-		// collect pre-existing declared names
-		for _, fn := range pn.FileSet.Files {
-			for _, decl := range fn.Decls {
-				for _, name := range decl.GetDeclNames() {
-					fdeclared[name] = struct{}{}
-				}
-			}
-		}
 		// add fns to pre-existing fileset.
 		pn.FileSet.AddFiles(fns...)
 	}
@@ -643,10 +634,27 @@ func (m *Machine) runFileDecls(withOverrides bool, fns ...*FileNode) []TypedValu
 		}
 		// After preprocessing, save blocknodes to store.
 		SaveBlockNodes(m.Store, fn)
-		// Make block for fn.
-		// Each file for each *PackageValue gets its own file *Block,
-		// with values copied over from each file's
-		// *FileNode.StaticBlock.
+	}
+
+	return m.instantiatePackageFiles(fns...)
+}
+
+// instantiatePackageFiles is the runtime-instantiation half of runFileDecls:
+// it allocates fresh file *Blocks on m.Package (values seeded from each
+// preprocessed FileNode.StaticBlock), calls PrepareNewValues, then runs
+// top-level non-Func declarations via Kahn's topological sort. Returns the
+// slice of new TypedValues to be consumed by runInitFromUpdates.
+//
+// NOTE: Preprocessing and pn.FileSet mutation are not performed here.
+// The caller must ensure fns are already in pn.FileSet and preprocessed.
+func (m *Machine) instantiatePackageFiles(fns ...*FileNode) []TypedValue {
+	pv := m.Package
+	pb := pv.GetBlock(m.Store)
+	pn := pb.GetSource(m.Store).(*PackageNode)
+
+	// Each file for each *PackageValue gets its own file *Block, with
+	// values copied over from each file's *FileNode.StaticBlock.
+	for _, fn := range fns {
 		fb := m.Alloc.NewBlock(fn, pb)
 		fb.Values = make([]TypedValue, len(fn.StaticBlock.Values))
 		copy(fb.Values, fn.StaticBlock.Values)
@@ -655,6 +663,27 @@ func (m *Machine) runFileDecls(withOverrides bool, fns ...*FileNode) []TypedValu
 
 	// Get new values across all files in package.
 	updates := pn.PrepareNewValues(m.Alloc, pv)
+
+	// Names declared in files from pn.FileSet that are not in fns are
+	// treated as pre-satisfied external dependencies by the sort below.
+	// For incremental file addition (runFileDecls), this is the set of
+	// previously-declared names. For fresh instantiation of a fully
+	// preprocessed pn (fns == pn.FileSet.Files), this is empty.
+	fnsSet := make(map[*FileNode]struct{}, len(fns))
+	for _, fn := range fns {
+		fnsSet[fn] = struct{}{}
+	}
+	fdeclared := map[Name]struct{}{}
+	for _, fn := range pn.FileSet.Files {
+		if _, ok := fnsSet[fn]; ok {
+			continue
+		}
+		for _, decl := range fn.Decls {
+			for _, name := range decl.GetDeclNames() {
+				fdeclared[name] = struct{}{}
+			}
+		}
+	}
 
 	// To initialize package variables, Go's spec says the following:
 	//    Within a package, package-level variable initialization proceeds
@@ -740,6 +769,31 @@ func (m *Machine) runFileDecls(withOverrides bool, fns ...*FileNode) []TypedValu
 	}
 
 	return updates
+}
+
+// instantiatePackageFiles performs runtime instantiation for the given
+// file nodes: it allocates a file *Block on m.Package for each fn (seeded
+// from fn.StaticBlock), calls PrepareNewValues, and runs top-level
+// non-Func declarations in dependency order (declaration order as tiebreak).
+// Returns the new TypedValues produced by PrepareNewValues, to be consumed
+// by runInitFromUpdates.
+//
+// fns must already be present in pn.FileSet and fully preprocessed; this
+// function does not preprocess or mutate pn.FileSet. Names declared in
+// pn.FileSet files outside of fns are treated as pre-satisfied dependencies.
+func (m *Machine) NewPackageInstance(pn *PackageNode) *PackageValue {
+	// pn.NewPackage calls pn.PrepareNewValues internally, populating
+	// pv.Block.Values with pn.Values (including init.* FuncValues). The
+	// second PrepareNewValues call inside instantiatePackageFiles is a
+	// no-op for an already-preprocessed pn (pvl == pnl returns nil), so
+	// runInitFromUpdates must be fed pv.Block.Values directly; otherwise
+	// init() funcs would never be scheduled.
+	pv := pn.NewPackage(m.Alloc)
+	m.Store.SetCachePackage(pv)
+	m.SetActivePackage(pv)
+	m.instantiatePackageFiles(pn.FileSet.Files...)
+	m.runInitFromUpdates(pv, pv.GetBlock(m.Store).Values)
+	return pv
 }
 
 // Run new init functions.
