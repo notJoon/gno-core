@@ -1,0 +1,51 @@
+mkdir $WORK/gnovm/tests
+symlink $WORK/gnovm/stdlibs -> $GNOROOT/gnovm/stdlibs
+symlink $WORK/gnovm/tests/stdlibs -> $GNOROOT/gnovm/tests/stdlibs
+env GNOROOT=$WORK
+
+gno test -v ./counter
+
+stderr '=== RUN   TestInitRan'
+stderr '--- PASS: TestInitRan'
+stderr '=== RUN   TestStateResetBetweenTests_A'
+stderr '--- PASS: TestStateResetBetweenTests_A'
+stderr '=== RUN   TestStateResetBetweenTests_B'
+stderr '--- PASS: TestStateResetBetweenTests_B'
+
+-- gnowork.toml --
+-- counter/gnomod.toml --
+module = "gno.land/p/demo/counter"
+gno = "0.9"
+
+-- counter/counter.gno --
+package counter
+
+var X int
+
+func init() {
+	X = 42
+}
+
+-- counter/counter_test.gno --
+package counter
+
+import "testing"
+
+func TestInitRan(t *testing.T) {
+	if X != 42 {
+		t.Fatalf("init() did not run: X = %d, want 42", X)
+	}
+}
+
+func TestStateResetBetweenTests_A(t *testing.T) {
+	if X != 42 {
+		t.Fatalf("expected fresh state with X = 42, got %d", X)
+	}
+	X = 100
+}
+
+func TestStateResetBetweenTests_B(t *testing.T) {
+	if X != 42 {
+		t.Fatalf("state leaked from previous test: X = %d, want 42", X)
+	}
+}

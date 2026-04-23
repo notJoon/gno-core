@@ -1,0 +1,46 @@
+# ref: https://github.com/gnolang/gno/issues/1982
+
+mkdir $WORK/gnovm/tests
+symlink $WORK/gnovm/stdlibs -> $GNOROOT/gnovm/stdlibs
+symlink $WORK/gnovm/tests/stdlibs -> $GNOROOT/gnovm/tests/stdlibs
+env GNOROOT=$WORK
+
+gno test -v ./counter
+
+stderr '=== RUN   TestIncrement1'
+stderr '--- PASS: TestIncrement1'
+stderr '=== RUN   TestIncrement2'
+stderr '--- PASS: TestIncrement2'
+
+-- gnowork.toml --
+-- counter/gnomod.toml --
+module = "gno.land/p/demo/counter"
+gno = "0.9"
+
+-- counter/counter.gno --
+package counter
+
+var count int
+
+func Increment() {
+	count++
+}
+
+-- counter/counter_test.gno --
+package counter
+
+import "testing"
+
+func TestIncrement1(t *testing.T) {
+	Increment()
+	if count != 1 {
+		t.Fail()
+	}
+}
+
+func TestIncrement2(t *testing.T) {
+	Increment()
+	if count != 1 {
+		t.Fail()
+	}
+}
