@@ -85,6 +85,9 @@ const (
 	// Bytes are counted separately via allocStringByte.
 	allocString     = _allocHeap + 16
 	allocStringByte = 1
+	// Reference-mode StringValue: struct overhead only, no data copy
+	// (the underlying bytes are shared with the source string).
+	allocStringRef = _allocHeap + 16
 
 	// BigintValue (8 bytes, fits in interface word, no escape).
 	// Cost is the internal *big.Int heap object.
