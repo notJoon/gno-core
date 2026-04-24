@@ -1,5 +1,7 @@
 #!/bin/sh
-# Gno precompiled binary installer (Linux/macOS, amd64/arm64).
+# Gno installer.
+# Default mode: download precompiled binaries (Linux/macOS, amd64/arm64).
+# --from-source: clone the repo and build via `make install`.
 # Run with --help for usage.
 
 set -eu
@@ -12,23 +14,40 @@ FULL_COMPONENTS="gno gnokey gnodev gnobro gnoweb gnoland"
 
 VERSION="${GNO_VERSION:-latest}"
 INSTALL_DIR="${GNO_INSTALL_DIR:-${HOME}/.gno/bin}"
+SRC_DIR="${GNO_SRC_DIR:-${HOME}/.gno/src}"
 FULL=0
+FROM_SOURCE=0
 
-log() { printf '[gno-install] %s\n' "$1"; }
-die() { printf '[gno-install] error: %s\n' "$1" >&2; exit 1; }
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log()  { printf '%b[gno-install]%b %s\n' "$GREEN"  "$NC" "$1"; }
+warn() { printf '%b[gno-install]%b %s\n' "$YELLOW" "$NC" "$1" >&2; }
+die()  { printf '%b[gno-install] error:%b %s\n' "$RED" "$NC" "$1" >&2; exit 1; }
 
 show_help() {
     cat <<'EOF'
-Gno precompiled binary installer (Linux/macOS, amd64/arm64).
+Gno installer.
+
+Default mode downloads precompiled binaries (Linux/macOS, amd64/arm64).
+Use --from-source to clone and build with `make install` instead.
 
 Usage:
   curl --proto '=https' --tlsv1.2 -sSf \
     https://raw.githubusercontent.com/gnolang/gno/master/misc/install.sh | sh
 
 Flags:
-  --version <tag>   install a specific release tag (default: latest)
-  --dir <path>      install directory (default: $HOME/.gno/bin)
+  --version <tag>   install a specific release tag (default: latest).
+                    With --from-source, selects the git ref (default: master).
+  --dir <path>      install directory (default: $HOME/.gno/bin).
+                    With --from-source, used as GOBIN.
   --full            also install the validator node (gnoland)
+  --from-source     clone the repository and build with `make install`
+                    instead of downloading prebuilt binaries.
+                    Requires go, git, and make.
   --help            show this help
 
 By default installs: gno, gnokey, gnodev, gnobro, gnoweb.
@@ -38,6 +57,8 @@ To remove an installation, see misc/uninstall.sh.
 Environment:
   GNO_VERSION       same as --version
   GNO_INSTALL_DIR   same as --dir
+  GNO_SRC_DIR       source checkout dir for --from-source
+                    (default: $HOME/.gno/src)
   GITHUB_TOKEN      optional. authenticates GitHub API requests to raise the
                     60 requests/hour anonymous rate limit
 EOF
@@ -46,11 +67,12 @@ EOF
 parse_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
-            --version) [ $# -ge 2 ] || die "--version needs a value"; VERSION="$2"; shift 2 ;;
-            --dir)     [ $# -ge 2 ] || die "--dir needs a value"; INSTALL_DIR="$2"; shift 2 ;;
-            --full)    FULL=1; shift ;;
-            -h|--help) show_help; exit 0 ;;
-            *)         die "unknown flag: $1 (try --help)" ;;
+            --version)     [ $# -ge 2 ] || die "--version needs a value"; VERSION="$2"; shift 2 ;;
+            --dir)         [ $# -ge 2 ] || die "--dir needs a value"; INSTALL_DIR="$2"; shift 2 ;;
+            --full)        FULL=1; shift ;;
+            --from-source) FROM_SOURCE=1; shift ;;
+            -h|--help)     show_help; exit 0 ;;
+            *)             die "unknown flag: $1 (try --help)" ;;
         esac
     done
 }
@@ -277,6 +299,13 @@ install_gno() {
     [ -z "$missing" ] || log "warning: expected binaries missing from $ARCHIVE:${missing}"
 
     log "installed into $INSTALL_DIR"
+    print_next_steps
+}
+
+print_next_steps() {
+    [ -x "$INSTALL_DIR/gno" ] || die "installation failed: $INSTALL_DIR/gno not found"
+    "$INSTALL_DIR/gno" version \
+        || warn "gno installed but failed to run; the binary may not be compatible with this system"
 
     case ":$PATH:" in
         *":$INSTALL_DIR:"*) ;;
@@ -299,12 +328,56 @@ install_gno() {
 EOF
 }
 
+install_from_source() {
+    command -v go   >/dev/null 2>&1 || die "go is not installed. See https://go.dev/doc/install"
+    command -v git  >/dev/null 2>&1 || die "git is not installed. See https://git-scm.com/downloads"
+    command -v make >/dev/null 2>&1 || die "make is not installed; install your platform's build tools"
+
+    if [ "$VERSION" = "latest" ]; then
+        ref="master"
+    else
+        ref="$VERSION"
+    fi
+
+    # Shallow clone to keep disk + network cost low (matches the previous
+    # installer's behavior). reset --hard FETCH_HEAD on re-runs ensures
+    # a stale local branch does not get reinstalled.
+    if [ ! -d "$SRC_DIR/.git" ]; then
+        log "cloning ${REPO} ($ref) into $SRC_DIR"
+        mkdir -p "$SRC_DIR"
+        git clone --depth 1 --branch "$ref" --quiet \
+            "https://github.com/${REPO}.git" "$SRC_DIR" || die "git clone $ref failed"
+    else
+        log "updating $SRC_DIR to $ref"
+        git -C "$SRC_DIR" fetch --depth 1 --quiet origin "$ref" || die "git fetch $ref failed"
+        git -C "$SRC_DIR" reset --hard --quiet FETCH_HEAD || die "git reset $ref failed"
+    fi
+
+    mkdir -p "$INSTALL_DIR"
+    log "building from source (ref=$ref, GOBIN=$INSTALL_DIR)"
+    GOBIN="$INSTALL_DIR" make --no-print-directory -C "$SRC_DIR" install install.gnobro \
+        || die "make install failed"
+    GOBIN="$INSTALL_DIR" make --no-print-directory -C "$SRC_DIR/gno.land" install.gnoweb \
+        || die "make install.gnoweb failed"
+    if [ "$FULL" = 1 ]; then
+        GOBIN="$INSTALL_DIR" make --no-print-directory -C "$SRC_DIR/gno.land" install.gnoland \
+            || die "make install.gnoland failed"
+    fi
+
+    log "installed into $INSTALL_DIR"
+    print_next_steps
+}
+
 main() {
     parse_args "$@"
-    capture_github_token
-    detect_platform
-    check_deps
-    install_gno
+    if [ "$FROM_SOURCE" = 1 ]; then
+        install_from_source
+    else
+        capture_github_token
+        detect_platform
+        check_deps
+        install_gno
+    fi
 }
 
 main "$@"

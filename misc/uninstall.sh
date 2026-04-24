@@ -7,8 +7,12 @@ set -eu
 FULL_COMPONENTS="gno gnokey gnodev gnobro gnoweb gnoland"
 INSTALL_DIR="${GNO_INSTALL_DIR:-${HOME}/.gno/bin}"
 
-log() { printf '[gno-uninstall] %s\n' "$1"; }
-die() { printf '[gno-uninstall] error: %s\n' "$1" >&2; exit 1; }
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+log() { printf '%b[gno-uninstall]%b %s\n' "$GREEN" "$NC" "$1"; }
+die() { printf '%b[gno-uninstall] error:%b %s\n' "$RED" "$NC" "$1" >&2; exit 1; }
 
 show_help() {
     cat <<'EOF'
@@ -47,8 +51,9 @@ uninstall_gno() {
         rm -f "$INSTALL_DIR/$c"
     done
     if command -v go >/dev/null 2>&1; then
-        gobin="$(go env GOPATH 2>/dev/null)/bin"
-        if [ "$gobin" != "/bin" ]; then
+        gopath="$(go env GOPATH 2>/dev/null)"
+        gobin="${gopath%/}/bin"
+        if [ -n "$gopath" ] && [ "$gobin" != "/bin" ]; then
             log "removing legacy binaries from $gobin"
             for c in $FULL_COMPONENTS; do
                 rm -f "$gobin/$c"
