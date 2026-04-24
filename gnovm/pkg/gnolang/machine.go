@@ -360,11 +360,7 @@ func (m *Machine) runMemPackage(mpkg *std.MemPackage, save, overrides, skipTestF
 		}
 	}
 	// run init functions
-	initUpdates := updates
-	if skipTestFileInits {
-		initUpdates = dropTestFileInitFuncs(updates)
-	}
-	m.runInitFromUpdates(pv, initUpdates)
+	m.runInitFromUpdates(pv, updates, skipTestFileInits)
 	// save again after init.
 	if save {
 		m.resavePackageValues(throwaway)
@@ -527,7 +523,7 @@ func (m *Machine) RunFiles(fns ...*FileNode) {
 			}
 		}
 	}
-	m.runInitFromUpdates(pv, updates)
+	m.runInitFromUpdates(pv, updates, false)
 	if rlm != nil {
 		rlm.FinalizeRealmTransaction(m.Store)
 	}
@@ -807,26 +803,8 @@ func (m *Machine) NewPackageInstance(pn *PackageNode) *PackageValue {
 	m.Store.SetCachePackage(pv)
 	m.SetActivePackage(pv)
 	m.instantiatePackageFiles(pn.FileSet.Files...)
-	m.runInitFromUpdates(pv, pv.GetBlock(m.Store).Values)
+	m.runInitFromUpdates(pv, pv.GetBlock(m.Store).Values, false)
 	return pv
-}
-
-// dropTestFileInitFuncs filters out init.* FuncValues declared in test
-// files so runInitFromUpdates skips them; all other entries (vars, funcs,
-// types, consts, and non-test init funcs) are preserved.
-func dropTestFileInitFuncs(updates []TypedValue) []TypedValue {
-	out := make([]TypedValue, 0, len(updates))
-	for _, tv := range updates {
-		if tv.IsDefined() && tv.T.Kind() == FuncKind && tv.V != nil {
-			if fv, ok := tv.V.(*FuncValue); ok &&
-				strings.HasPrefix(string(fv.Name), "init.") &&
-				IsTestFile(fv.FileName) {
-				continue
-			}
-		}
-		out = append(out, tv)
-	}
-	return out
 }
 
 // Run new init functions.
@@ -835,7 +813,10 @@ func dropTestFileInitFuncs(updates []TypedValue) []TypedValue {
 // multiple files belonging to the same package in
 // lexical file name order to a compiler."
 // If m.Realm is set `init(cur realm)` works too.
-func (m *Machine) runInitFromUpdates(pv *PackageValue, updates []TypedValue) {
+// When skipTestFileInits is true, init funcs declared in *_test.gno /
+// *_filetest.gno files are not executed; used by the test harness so
+// test-file inits don't mutate shared tgs state during the initial seed.
+func (m *Machine) runInitFromUpdates(pv *PackageValue, updates []TypedValue, skipTestFileInits bool) {
 	// Only for the init functions make the origin caller
 	// the package addr.
 	for _, tv := range updates {
@@ -844,13 +825,17 @@ func (m *Machine) runInitFromUpdates(pv *PackageValue, updates []TypedValue) {
 			if !ok {
 				continue // skip native functions.
 			}
-			if strings.HasPrefix(string(fv.Name), "init.") {
-				fb := pv.GetFileBlock(m.Store, fv.FileName)
-				m.PushBlock(fb)
-				maybeCrossing := m.Realm != nil
-				m.runFunc(StageAdd, fv.Name, maybeCrossing)
-				m.PopBlock()
+			if !strings.HasPrefix(string(fv.Name), "init.") {
+				continue
 			}
+			if skipTestFileInits && IsTestFile(fv.FileName) {
+				continue
+			}
+			fb := pv.GetFileBlock(m.Store, fv.FileName)
+			m.PushBlock(fb)
+			maybeCrossing := m.Realm != nil
+			m.runFunc(StageAdd, fv.Name, maybeCrossing)
+			m.PopBlock()
 		}
 	}
 }
