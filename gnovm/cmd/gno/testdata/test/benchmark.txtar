@@ -7,7 +7,7 @@ stderr 'ok      \. 	\d+\.\d\ds'
 gno test -bench . -benchcount 10 -benchmem .
 
 ! stdout .+
-stderr 'BenchmarkCounter	10	[1-9][0-9]* cycles/op	[1-9][0-9]* gas/op	7 bytes/op	[0-9]+ B/op	[0-9]+ allocs/op'
+stderr 'BenchmarkCounter\s+10\s+[1-9][0-9]* cycles/op\s+[1-9][0-9]* gas/op\s+7 bytes/op\s+[0-9]+ B/op\s+[0-9]+ allocs/op'
 stderr 'ok      \. 	\d+\.\d\ds'
 
 -- bench.gno --

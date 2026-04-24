@@ -652,11 +652,22 @@ func (opts *TestOptions) runBenchmarkFiles(
 
 	pv := opts.loadTestPackage(mpkg, tgs, alloc)
 
+	// Filter once, and capture the longest name so result columns line up
+	// (mirrors Go testing's maxLen). Sub-benches from b.Run with longer names
+	// overflow for that line only.
+	filtered := make([]testFunc, 0, len(benchmarks))
+	nameWidth := 0
 	for _, bf := range benchmarks {
 		if !shouldRun(filter, bf.Name) {
 			continue
 		}
+		filtered = append(filtered, bf)
+		if l := len(bf.Name); l > nameWidth {
+			nameWidth = l
+		}
+	}
 
+	for _, bf := range filtered {
 		m = Machine(tgs, opts.WriterForStore(), mpkg.Path, opts.Debug, store.NewInfiniteGasMeter())
 		m.Alloc = alloc.Reset()
 		m.SetActivePackage(pv)
@@ -701,7 +712,7 @@ func (opts *TestOptions) runBenchmarkFiles(
 				fmt.Fprintf(opts.Error, "--- SKIP: %s\n", name)
 				continue
 			}
-			fmt.Fprintln(opts.Error, formatBenchmarkResult(name, rep, opts.BenchMem))
+			fmt.Fprintln(opts.Error, formatBenchmarkResult(name, rep, opts.BenchMem, nameWidth))
 		}
 		if failfast {
 			return errs
@@ -746,21 +757,45 @@ func loadBenchFuncs(pkgName string, tfiles *gno.FileSet) (rt []testFunc) {
 	return loadFuncs(pkgName, tfiles, "Benchmark")
 }
 
-func formatBenchmarkResult(name string, rep benchmarkReport, benchmem bool) string {
+// Fixed column widths for benchmark output, matching Go testing's prettyPrint style.
+const (
+	benchColN          = 8
+	benchColCycles     = 12
+	benchColGas        = 12
+	benchColBytes      = 10
+	benchColAllocBytes = 12
+	benchColAllocCount = 10
+)
+
+// formatBenchmarkResult renders a single benchmark result line. nameWidth is
+// the minimum width to which the name is left-padded; pass 0 to skip padding.
+func formatBenchmarkResult(name string, rep benchmarkReport, benchmem bool, nameWidth int) string {
 	n := int64(rep.N)
 	if n <= 0 {
 		n = 1
 	}
+	if nameWidth < len(name) {
+		nameWidth = len(name)
+	}
 	cyclesPerOp := rep.Cycles / n
 	gasPerOp := rep.Gas / n
-	line := fmt.Sprintf("%s\t%d\t%d cycles/op\t%d gas/op", name, rep.N, cyclesPerOp, gasPerOp)
+	var b strings.Builder
+	fmt.Fprintf(&b, "%-*s\t%*d\t%*d cycles/op\t%*d gas/op",
+		nameWidth, name,
+		benchColN, rep.N,
+		benchColCycles, cyclesPerOp,
+		benchColGas, gasPerOp,
+	)
 	if rep.Bytes > 0 {
-		line += fmt.Sprintf("\t%d bytes/op", rep.Bytes)
+		fmt.Fprintf(&b, "\t%*d bytes/op", benchColBytes, rep.Bytes)
 	}
 	if benchmem || rep.ReportAllocs {
-		line += fmt.Sprintf("\t%d B/op\t%d allocs/op", rep.AllocBytes/n, rep.Allocs/n)
+		fmt.Fprintf(&b, "\t%*d B/op\t%*d allocs/op",
+			benchColAllocBytes, rep.AllocBytes/n,
+			benchColAllocCount, rep.Allocs/n,
+		)
 	}
-	return line
+	return b.String()
 }
 
 // parseMemPackageTests parses test files (skipping filetests) in the mpkg.
