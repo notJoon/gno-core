@@ -254,7 +254,13 @@ func Test(mpkg *std.MemPackage, fsDir string, opts *TestOptions) error {
 	// If testing with only filetests, there will be no files.
 	tmpkg := gno.MPFTest.FilterMemPackage(mpkg)
 	if !tmpkg.IsEmptyOf(".gno") {
-		_, _ = m2.RunMemPackageWithOverrides(tmpkg, true)
+		// Skip test-file init() while seeding tgs: otherwise they would
+		// mutate shared imported-realm state (e.g. gov/dao.allowedDAOs
+		// via a test's InitWithUsers call), and every per-test inner
+		// transaction below would inherit that pollution. Each test
+		// still re-runs all inits on a fresh PackageValue via
+		// NewPackageInstance, against a clean tgs baseline.
+		_, _ = m2.RunMemPackageSkipTestFileInits(tmpkg, true)
 	}
 
 	// Eagerly load imports.
@@ -272,7 +278,7 @@ func Test(mpkg *std.MemPackage, fsDir string, opts *TestOptions) error {
 	if len(tset.Files)+len(itset.Files) > 0 {
 		// Run test files in pkg.
 		if len(tset.Files) > 0 {
-			err := opts.runTestFiles(mpkg, tset, tgs)
+			err := opts.runTestFiles(mpkg, tset, tgs, tcw)
 			if err != nil {
 				errs = multierr.Append(errs, err)
 			}
@@ -293,7 +299,7 @@ func Test(mpkg *std.MemPackage, fsDir string, opts *TestOptions) error {
 				Files: itfiles,
 			}
 
-			err := opts.runTestFiles(itmpkg, itset, tgs)
+			err := opts.runTestFiles(itmpkg, itset, tgs, tcw)
 			if err != nil {
 				errs = multierr.Append(errs, err)
 			}
@@ -354,6 +360,7 @@ func (opts *TestOptions) runTestFiles(
 	mpkg *std.MemPackage,
 	files *gno.FileSet,
 	tgs gno.TransactionStore,
+	baseStore storetypes.Store,
 ) (errs error) {
 	var m *gno.Machine
 	defer func() {
@@ -409,12 +416,15 @@ func (opts *TestOptions) runTestFiles(
 		// Each test runs in its own nested transaction off tgs, producing
 		// a fresh PackageValue (own Block and file blocks, re-run var
 		// decls and init() funcs) from the shared preprocessed pn. The
-		// inner txn's isolated cacheObjects (see
-		// defaultStore.BeginTransaction) plus the fresh pv ensure
-		// package-level globals start from zero for every test. Dropping
-		// the inner txn without calling Write() discards any state
-		// changes the test made.
-		innerTxn := tgs.BeginTransaction(nil, nil, nil, nil)
+		// inner txn's isolated cacheObjects plus the fresh pv ensure
+		// package-level globals start from zero for every test.
+		//
+		// The base/iavl stores are CacheWrap'd per test so that realm
+		// finalization writes (SetObject → baseStore.Set) do not
+		// propagate to tgs or sibling tests; dropping innerBase without
+		// calling Write() discards all persisted mutations.
+		innerBase := baseStore.CacheWrap()
+		innerTxn := tgs.BeginTransaction(innerBase, innerBase, nil, nil)
 
 		m = Machine(innerTxn, opts.WriterForStore(), mpkg.Path, opts.Debug, store.NewInfiniteGasMeter())
 		m.Alloc = alloc.Reset()

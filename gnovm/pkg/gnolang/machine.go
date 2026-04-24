@@ -283,7 +283,7 @@ func (m *Machine) RunMemPackage(mpkg *std.MemPackage, save bool) (*PackageNode, 
 			defer bm.FinishStore()
 		}
 	}
-	return m.runMemPackage(mpkg, save, false)
+	return m.runMemPackage(mpkg, save, false, false)
 }
 
 // RunMemPackageWithOverrides works as [RunMemPackage], however after parsing,
@@ -296,10 +296,21 @@ func (m *Machine) RunMemPackage(mpkg *std.MemPackage, save bool) (*PackageNode, 
 // NOTE: Does not validate the mpkg, except when saving validates a mpkg with
 // its type.
 func (m *Machine) RunMemPackageWithOverrides(mpkg *std.MemPackage, save bool) (*PackageNode, *PackageValue) {
-	return m.runMemPackage(mpkg, save, true)
+	return m.runMemPackage(mpkg, save, true, false)
 }
 
-func (m *Machine) runMemPackage(mpkg *std.MemPackage, save, overrides bool) (*PackageNode, *PackageValue) {
+// RunMemPackageSkipTestFileInits is like [RunMemPackageWithOverrides] but
+// does not execute init() functions declared in *_test.gno files when
+// loading the package. File parsing, preprocessing, and top-level var
+// declarations still run so that test-file symbols are available for
+// xxx_test integration test imports; only the init funcs are skipped.
+// Per-test machines that re-instantiate the package via
+// [Machine.NewPackageInstance] still run all inits on their fresh pv.
+func (m *Machine) RunMemPackageSkipTestFileInits(mpkg *std.MemPackage, save bool) (*PackageNode, *PackageValue) {
+	return m.runMemPackage(mpkg, save, true, true)
+}
+
+func (m *Machine) runMemPackage(mpkg *std.MemPackage, save, overrides, skipTestFileInits bool) (*PackageNode, *PackageValue) {
 	// validate mpkg.Type.
 	mptype := mpkg.Type.(MemPackageType)
 	if save && !mptype.IsStorable() {
@@ -349,7 +360,11 @@ func (m *Machine) runMemPackage(mpkg *std.MemPackage, save, overrides bool) (*Pa
 		}
 	}
 	// run init functions
-	m.runInitFromUpdates(pv, updates)
+	initUpdates := updates
+	if skipTestFileInits {
+		initUpdates = dropTestFileInitFuncs(updates)
+	}
+	m.runInitFromUpdates(pv, initUpdates)
 	// save again after init.
 	if save {
 		m.resavePackageValues(throwaway)
@@ -794,6 +809,24 @@ func (m *Machine) NewPackageInstance(pn *PackageNode) *PackageValue {
 	m.instantiatePackageFiles(pn.FileSet.Files...)
 	m.runInitFromUpdates(pv, pv.GetBlock(m.Store).Values)
 	return pv
+}
+
+// dropTestFileInitFuncs filters out init.* FuncValues declared in test
+// files so runInitFromUpdates skips them; all other entries (vars, funcs,
+// types, consts, and non-test init funcs) are preserved.
+func dropTestFileInitFuncs(updates []TypedValue) []TypedValue {
+	out := make([]TypedValue, 0, len(updates))
+	for _, tv := range updates {
+		if tv.IsDefined() && tv.T.Kind() == FuncKind && tv.V != nil {
+			if fv, ok := tv.V.(*FuncValue); ok &&
+				strings.HasPrefix(string(fv.Name), "init.") &&
+				IsTestFile(fv.FileName) {
+				continue
+			}
+		}
+		out = append(out, tv)
+	}
+	return out
 }
 
 // Run new init functions.
