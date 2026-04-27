@@ -58,7 +58,7 @@ type MetadataNFT struct {
 // PrivateLedger holds metadata state and exposes admin-grade metadata
 // operations. Possessing this pointer is the authorization gate.
 type PrivateLedger struct {
-	entries    *bptree.BPTree
+	entries    bptree.BPTree
 	mNFT       *MetadataNFT
 	coreLedger *grc721.PrivateLedger
 }
@@ -73,7 +73,6 @@ type PrivateLedger struct {
 func NewMetadataNFT(name, symbol string) (*MetadataNFT, *grc721.PrivateLedger, *PrivateLedger) {
 	nft, coreLedger := grc721.NewNFT(name, symbol)
 	mLedger := &PrivateLedger{
-		entries:    bptree.NewBPTree32(),
 		coreLedger: coreLedger,
 	}
 	mNFT := &MetadataNFT{
