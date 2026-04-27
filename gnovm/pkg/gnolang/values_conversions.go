@@ -1082,6 +1082,47 @@ func ConvertTo(alloc *Allocator, store Store, tv *TypedValue, t Type, isConst bo
 			default:
 				panic("should not happen")
 			}
+		} else if t.Kind() == ArrayKind {
+			cat := baseOf(t).(*ArrayType)
+
+			var sLen, sOff int
+			var sBase *ArrayValue
+			switch sv := tv.V.(type) {
+			case nil:
+			case *SliceValue:
+				sLen, sOff = sv.Length, sv.Offset
+				sBase = sv.GetBase(store)
+			default:
+				panic("should not happen")
+			}
+
+			if sLen < cat.Len {
+				panic(&Exception{Value: typedString(fmt.Sprintf(
+					"runtime error: cannot convert slice with length %d to array with length %d",
+					sLen, cat.Len))})
+			}
+
+			if cat.Elt.Kind() == Uint8Kind {
+				av := alloc.NewDataArray(cat.Len)
+				if sBase != nil {
+					if sBase.Data != nil {
+						copy(av.Data, sBase.Data[sOff:sOff+cat.Len])
+					} else {
+						copyListToData(av.Data, sBase.List[sOff:sOff+cat.Len])
+					}
+				}
+				tv.V = av
+				tv.T = t
+			} else {
+				av := alloc.NewListArray(cat.Len)
+				if sBase != nil {
+					for i := 0; i < cat.Len; i++ {
+						av.List[i] = sBase.List[sOff+i].Copy(alloc)
+					}
+				}
+				tv.V = av
+				tv.T = t
+			}
 		} else {
 			panic(fmt.Sprintf(
 				"cannot convert %s to %s",
