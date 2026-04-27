@@ -268,5 +268,5 @@ func TestPrivateLedger_SetApprovalForAll_SelfRejected(t *testing.T) {
 	owner := testutils.TestAddress("owner")
 
 	err := ledger.SetApprovalForAll(owner, owner, true)
-	uassert.ErrorIs(t, err, ErrApprovalToCurrentOwner)
+	uassert.ErrorIs(t, err, ErrSelfApproval)
 }

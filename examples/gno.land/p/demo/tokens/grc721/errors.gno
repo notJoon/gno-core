@@ -7,6 +7,7 @@ var (
 	ErrInvalidAddress             = errors.New("invalid address")
 	ErrTokenIdNotHasApproved      = errors.New("token id not approved for anyone")
 	ErrApprovalToCurrentOwner     = errors.New("approval to current owner")
+	ErrSelfApproval               = errors.New("cannot approve self as operator")
 	ErrCallerIsNotOwner           = errors.New("caller is not token owner")
 	ErrCannotTransferToSelf       = errors.New("cannot send transfer to self")
 	ErrTransferFromIncorrectOwner = errors.New("transfer from incorrect owner")

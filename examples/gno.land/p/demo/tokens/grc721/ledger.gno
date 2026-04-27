@@ -180,7 +180,7 @@ func (l *PrivateLedger) SetApprovalForAll(owner, op address, approved bool) erro
 		return err
 	}
 	if owner == op {
-		return ErrApprovalToCurrentOwner
+		return ErrSelfApproval
 	}
 
 	ownerStr := owner.String()
