@@ -8,8 +8,9 @@ import (
 )
 
 var (
-	admin address = "g1rp7cmetn27eqlpjpc4vuusf8kaj746tysc0qgh" // govdao t1 multisig
-	foo           = grc721.NewBasicNFT("FooNFT", "FNFT")
+	admin   address = "g1rp7cmetn27eqlpjpc4vuusf8kaj746tysc0qgh" // govdao t1 multisig
+	foo, fooLedger  = grc721.NewNFT("FooNFT", "FNFT")
+	UserTeller      = foo.CallerTeller()
 )
 
 func init() {
@@ -21,7 +22,7 @@ func mintNNFT(owner address, n int64) {
 	count := foo.TokenCount()
 	for i := count; i < count+n; i++ {
 		tid := grc721.TokenID(ufmt.Sprintf("%d", i))
-		foo.Mint(owner, tid)
+		fooLedger.Mint(owner, tid)
 	}
 }
 
@@ -61,22 +62,19 @@ func GetApproved(tid grc721.TokenID) address {
 // Setters
 
 func Approve(_ realm, user address, tid grc721.TokenID) {
-	err := foo.Approve(user, tid)
-	if err != nil {
+	if err := UserTeller.Approve(user, tid); err != nil {
 		panic(err)
 	}
 }
 
 func SetApprovalForAll(_ realm, user address, approved bool) {
-	err := foo.SetApprovalForAll(user, approved)
-	if err != nil {
+	if err := UserTeller.SetApprovalForAll(user, approved); err != nil {
 		panic(err)
 	}
 }
 
 func TransferFrom(_ realm, from, to address, tid grc721.TokenID) {
-	err := foo.TransferFrom(from, to, tid)
-	if err != nil {
+	if err := UserTeller.TransferFrom(from, to, tid); err != nil {
 		panic(err)
 	}
 }
@@ -86,8 +84,7 @@ func TransferFrom(_ realm, from, to address, tid grc721.TokenID) {
 func Mint(_ realm, to address, tid grc721.TokenID) {
 	caller := runtime.PreviousRealm().Address()
 	assertIsAdmin(caller)
-	err := foo.Mint(to, tid)
-	if err != nil {
+	if err := fooLedger.Mint(to, tid); err != nil {
 		panic(err)
 	}
 }
@@ -95,8 +92,7 @@ func Mint(_ realm, to address, tid grc721.TokenID) {
 func Burn(_ realm, tid grc721.TokenID) {
 	caller := runtime.PreviousRealm().Address()
 	assertIsAdmin(caller)
-	err := foo.Burn(tid)
-	if err != nil {
+	if err := fooLedger.Burn(tid); err != nil {
 		panic(err)
 	}
 }
@@ -114,8 +110,8 @@ func Render(path string) string {
 
 // Util
 
-func assertIsAdmin(address_XXX address) {
-	if address_XXX != admin {
+func assertIsAdmin(addr address) {
+	if addr != admin {
 		panic("restricted access")
 	}
 }
