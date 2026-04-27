@@ -151,10 +151,10 @@ func (ft *fnTeller) TransferFrom(from, to address, tid TokenID) error {
 
 // SafeTransferFrom currently behaves identically to TransferFrom.
 //
-// Deprecated: SafeTransferFrom performs no receiver check. It exists as
-// an alias of TransferFrom until a registry-based receiver check lands.
-// See https://github.com/gnolang/gno/issues/5546 (PR-C in ADR-0001).
-// New code should call TransferFrom directly.
+// Deprecated: SafeTransferFrom performs no receiver check and is an
+// alias of TransferFrom until a registry-based receiver check lands;
+// see https://github.com/gnolang/gno/issues/5546. New code should call
+// TransferFrom directly.
 func (ft *fnTeller) SafeTransferFrom(from, to address, tid TokenID) error {
 	return ft.TransferFrom(from, to, tid)
 }

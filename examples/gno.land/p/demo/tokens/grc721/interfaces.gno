@@ -1,11 +1,10 @@
 package grc721
 
 // IGRC721Core is the core EIP-721 surface, separated from metadata and
-// enumerable concerns. See ADR-0001 §3.6 for the segregation rationale.
+// enumerable concerns.
 //
-// SetTokenURI lives on IGRC721Metadata, not here. In the legacy
-// monolithic IGRC721 interface (igrc721.gno) it was bundled in core,
-// which prevented metadata-less collections from satisfying the type.
+// SetTokenURI lives on IGRC721Metadata, not here, so collections without
+// metadata can satisfy IGRC721Core directly.
 type IGRC721Core interface {
 	BalanceOf(addr address) (int64, error)
 	OwnerOf(tid TokenID) (address, error)
@@ -24,17 +23,12 @@ type IGRC721Enumerable interface {
 	TotalSupply() int64
 }
 
-// Compile-time interface satisfaction.
-//
-// These witnesses make the layering from ADR-0001 §3.6 testable from a
-// glance: a reviewer can verify the design by reading this block alone.
-// The legacy IGRC721 / IGRC721Metadata witnesses are retained until
-// commit 10 deletes the legacy types; *fnTeller continues to satisfy
-// both shapes throughout the migration.
+// Compile-time interface satisfaction. Keeps the type/interface
+// relationships visible at a glance.
 var (
-	_ IGRC721CollectionMetadata = (*NFT)(nil)      // collection name/symbol
-	_ IGRC721Enumerable         = (*NFT)(nil)      // total supply view
-	_ IGRC721Core               = (*fnTeller)(nil) // caller-resolved core writes
-	_ IGRC721Metadata           = (*fnTeller)(nil) // legacy metadata reads (TokenURI via embedded *NFT)
-	_ IGRC721                   = (*fnTeller)(nil) // legacy monolithic — removed in commit 10
+	_ IGRC721CollectionMetadata = (*NFT)(nil)
+	_ IGRC721Enumerable         = (*NFT)(nil)
+	_ IGRC721Core               = (*fnTeller)(nil)
+	_ IGRC721Metadata           = (*fnTeller)(nil)
+	_ IGRC721                   = (*fnTeller)(nil)
 )

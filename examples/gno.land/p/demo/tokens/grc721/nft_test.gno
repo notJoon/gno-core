@@ -176,7 +176,7 @@ func TestPrivateLedger_Burn_Missing(t *testing.T) {
 
 func TestPrivateLedger_Transfer_Admin(t *testing.T) {
 	// Transfer on the ledger requires no caller check; possessing the
-	// pointer is the authorization. This is the central invariant.
+	// pointer is the authorization.
 	nft, ledger := NewNFT(newNFTName, newNFTSymbol)
 	from := testutils.TestAddress("from")
 	to := testutils.TestAddress("to")
