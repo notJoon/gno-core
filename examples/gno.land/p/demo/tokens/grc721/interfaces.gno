@@ -16,6 +16,19 @@ type IGRC721Core interface {
 	SafeTransferFrom(from, to address, tid TokenID) error
 }
 
+// IGRC721CollectionMetadata exposes name/symbol for an NFT collection.
+type IGRC721CollectionMetadata interface {
+	Name() string
+	Symbol() string
+}
+
+// IGRC721Metadata is the per-token metadata extension surface.
+type IGRC721Metadata interface {
+	IGRC721CollectionMetadata
+	TokenURI(tid TokenID) (string, error)
+	SetTokenURI(tid TokenID, uri TokenURI) (bool, error)
+}
+
 // IGRC721Enumerable exposes the supply-counting portion of the EIP-721
 // enumerable extension. TokenByIndex and TokenOfOwnerByIndex are out of
 // scope for this refactor.
@@ -30,5 +43,4 @@ var (
 	_ IGRC721Enumerable         = (*NFT)(nil)
 	_ IGRC721Core               = (*fnTeller)(nil)
 	_ IGRC721Metadata           = (*fnTeller)(nil)
-	_ IGRC721                   = (*fnTeller)(nil)
 )

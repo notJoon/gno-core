@@ -8,7 +8,3 @@ func isValidAddress(addr address) error {
 	}
 	return nil
 }
-
-func emit(event any) {
-	// TODO: setup a pubsub system here?
-}
