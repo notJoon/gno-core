@@ -14,6 +14,7 @@ var (
 	ErrTransferToNonGRC721Receiver = errors.New("transfer to non GRC721Receiver implementer")
 	ErrCallerIsNotOwnerOrApproved  = errors.New("caller is not token owner or approved")
 	ErrTokenIdAlreadyExists        = errors.New("token id already exists")
+	ErrReadonly                    = errors.New("teller is readonly")
 
 	// ERC721Royalty
 	ErrInvalidRoyaltyPercentage     = errors.New("invalid royalty percentage")
