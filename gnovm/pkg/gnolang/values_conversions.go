@@ -1116,12 +1116,45 @@ func ConvertTo(alloc *Allocator, store Store, tv *TypedValue, t Type, isConst bo
 			} else {
 				av := alloc.NewListArray(cat.Len)
 				if sBase != nil {
-					for i := 0; i < cat.Len; i++ {
-						av.List[i] = sBase.List[sOff+i].Copy(alloc)
-					}
+					copy(av.List, sBase.List[sOff:sOff+cat.Len])
 				}
 				tv.V = av
 				tv.T = t
+			}
+		} else if t.Kind() == PointerKind {
+			pt := baseOf(t).(*PointerType)
+			cat, ok := pt.Elem().(*ArrayType)
+			if !ok {
+				panic(fmt.Sprintf(
+					"cannot convert %s to %s",
+					tv.T.String(), t.String()))
+			}
+
+			switch sv := tv.V.(type) {
+			case nil:
+				if cat.Len > 0 {
+					panic(&Exception{Value: typedString(fmt.Sprintf(
+						"runtime error: cannot convert slice with length 0 to pointer to array with length %d",
+						cat.Len))})
+				}
+				tv.V = nil
+				tv.T = t
+			case *SliceValue:
+				if sv.Length < cat.Len {
+					panic(&Exception{Value: typedString(fmt.Sprintf(
+						"runtime error: cannot convert slice with length %d to pointer to array with length %d",
+						sv.Length, cat.Len))})
+				}
+				baseAV := sv.GetBase(store)
+				view := newArrayPtrView(baseAV, sv.Offset, cat.Len)
+				tv.V = PointerValue{
+					TV:    &TypedValue{T: cat, V: view},
+					Base:  baseAV,
+					Index: sv.Offset,
+				}
+				tv.T = t
+			default:
+				panic("should not happen")
 			}
 		} else {
 			panic(fmt.Sprintf(
