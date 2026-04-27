@@ -91,7 +91,6 @@ func NewRoyaltyNFT(name, symbol string, maxBps int64) (*RoyaltyNFT, *grc721.Priv
 	return rNFT, coreLedger, rLedger
 }
 
-// MaxBps returns the configured per-token royalty cap.
 func (l *PrivateLedger) MaxBps() int64 { return l.maxBps }
 
 // SetTokenRoyalty stores royalty information for tid. Admin-grade: no
@@ -159,8 +158,6 @@ func (r *RoyaltyNFT) CallerTeller() Teller {
 	}
 }
 
-// ReadonlyTeller returns a Teller whose write methods all return
-// grc721.ErrReadonly.
 func (r *RoyaltyNFT) ReadonlyTeller() Teller {
 	return &fnTeller{
 		Teller:    r.NFT.ReadonlyTeller(),
@@ -215,7 +212,6 @@ func (ft *fnTeller) RoyaltyInfo(tid grc721.TokenID, salePrice int64) (address, i
 	return ft.rNFT.RoyaltyInfo(tid, salePrice)
 }
 
-// Compile-time interface satisfaction.
 var (
 	_ IGRC2981 = (*RoyaltyNFT)(nil)
 	_ Teller   = (*fnTeller)(nil)

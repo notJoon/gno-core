@@ -65,22 +65,14 @@ func NewNFT(name, symbol string) (*NFT, *PrivateLedger) {
 	return nft, ledger
 }
 
-// Name returns the collection name.
-func (n *NFT) Name() string { return n.name }
-
-// Symbol returns the collection symbol.
-func (n *NFT) Symbol() string { return n.symbol }
-
-// ID returns the collection identifier (origRealm + "." + symbol).
-func (n *NFT) ID() string { return n.origRealm + "." + n.symbol }
-
-// TokenCount returns the number of minted tokens currently in existence.
+func (n *NFT) Name() string      { return n.name }
+func (n *NFT) Symbol() string    { return n.symbol }
+func (n *NFT) ID() string        { return n.origRealm + "." + n.symbol }
 func (n *NFT) TokenCount() int64 { return int64(n.ledger.owners.Size()) }
 
 // TotalSupply is an alias of TokenCount, aligning naming with grc20.
 func (n *NFT) TotalSupply() int64 { return n.TokenCount() }
 
-// BalanceOf returns the number of tokens owned by addr.
 func (n *NFT) BalanceOf(addr address) (int64, error) {
 	if err := isValidAddress(addr); err != nil {
 		return 0, err
@@ -102,7 +94,6 @@ func (n *NFT) OwnerOf(tid TokenID) (address, error) {
 	return owner.(address), nil
 }
 
-// TokenURI returns the URI associated with tid.
 func (n *NFT) TokenURI(tid TokenID) (string, error) {
 	uri, found := n.ledger.tokenURIs.Get(tid.String())
 	if !found {
@@ -121,7 +112,6 @@ func (n *NFT) GetApproved(tid TokenID) (address, error) {
 	return addr.(address), nil
 }
 
-// IsApprovedForAll reports whether op may act on any of owner's tokens.
 func (n *NFT) IsApprovedForAll(owner, op address) bool {
 	key := owner.String() + ":" + op.String()
 	v, found := n.ledger.operatorApprovals.Get(key)
@@ -131,7 +121,6 @@ func (n *NFT) IsApprovedForAll(owner, op address) bool {
 	return v.(bool)
 }
 
-// RenderHome returns a markdown summary of the collection.
 func (n *NFT) RenderHome() string {
 	return ufmt.Sprintf(
 		"# %s ($%s)\n\n* **Total supply**: %d\n* **Known accounts**: %d\n",

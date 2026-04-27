@@ -95,7 +95,6 @@ func (l *PrivateLedger) SetTokenMetadata(tid grc721.TokenID, m Metadata) error {
 	return nil
 }
 
-// TokenMetadata returns the metadata for tid, satisfying IMetadata.
 func (m *MetadataNFT) TokenMetadata(tid grc721.TokenID) (Metadata, error) {
 	if _, err := m.NFT.OwnerOf(tid); err != nil {
 		return Metadata{}, err
@@ -123,8 +122,6 @@ type fnTeller struct {
 	accountFn func() address
 }
 
-// CallerTeller returns a Teller that resolves the acting principal from
-// runtime.PreviousRealm() per call.
 func (m *MetadataNFT) CallerTeller() Teller {
 	return &fnTeller{
 		Teller:    m.NFT.CallerTeller(),
@@ -133,8 +130,6 @@ func (m *MetadataNFT) CallerTeller() Teller {
 	}
 }
 
-// ReadonlyTeller returns a Teller whose write methods all return
-// grc721.ErrReadonly.
 func (m *MetadataNFT) ReadonlyTeller() Teller {
 	return &fnTeller{
 		Teller:    m.NFT.ReadonlyTeller(),
@@ -157,8 +152,6 @@ func (m *MetadataNFT) RealmTeller() Teller {
 	}
 }
 
-// ImpersonateTeller returns a Teller acting as addr for both core and
-// metadata methods.
 func (l *PrivateLedger) ImpersonateTeller(addr address) Teller {
 	return &fnTeller{
 		Teller:    l.coreLedger.ImpersonateTeller(addr),
@@ -188,7 +181,6 @@ func (ft *fnTeller) TokenMetadata(tid grc721.TokenID) (Metadata, error) {
 	return ft.mNFT.TokenMetadata(tid)
 }
 
-// Compile-time interface satisfaction.
 var (
 	_ IMetadata = (*MetadataNFT)(nil)
 	_ Teller    = (*fnTeller)(nil)

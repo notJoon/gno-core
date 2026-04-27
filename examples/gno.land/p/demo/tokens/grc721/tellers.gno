@@ -96,12 +96,9 @@ func (n *NFT) RealmSubTeller(slug string) Teller {
 	}
 }
 
-// ImpersonateTeller returns a Teller that acts as if its caller is the
-// supplied address. Reserved for admin/migration use; possessing
-// *PrivateLedger is the authorization gate.
-//
-// Use with caution: this allows operations to be performed under the
-// guise of another address.
+// ImpersonateTeller acts as if its caller is the supplied address.
+// Possessing *PrivateLedger is the authorization gate; reserved for
+// admin/migration use.
 func (l *PrivateLedger) ImpersonateTeller(addr address) Teller {
 	return &fnTeller{
 		accountFn: func() address { return addr },
@@ -142,8 +139,8 @@ func (ft *fnTeller) SafeTransferFrom(from, to address, tid TokenID) error {
 	return ft.TransferFrom(from, to, tid)
 }
 
-// Approve sets `to` as the approved address for tid. The caller must be
-// the owner of tid or an approved-for-all operator of the owner.
+// Approve: caller must be the owner of tid or an approved-for-all
+// operator of the owner.
 func (ft *fnTeller) Approve(to address, tid TokenID) error {
 	if ft.accountFn == nil {
 		return ErrReadonly
@@ -159,8 +156,6 @@ func (ft *fnTeller) Approve(to address, tid TokenID) error {
 	return ft.NFT.ledger.Approve(to, tid)
 }
 
-// SetApprovalForAll grants/revokes op as operator over all of caller's
-// tokens.
 func (ft *fnTeller) SetApprovalForAll(op address, approved bool) error {
 	if ft.accountFn == nil {
 		return ErrReadonly
@@ -169,7 +164,6 @@ func (ft *fnTeller) SetApprovalForAll(op address, approved bool) error {
 	return ft.NFT.ledger.SetApprovalForAll(caller, op, approved)
 }
 
-// SetTokenURI sets the URI of tid. The caller must be the owner of tid.
 func (ft *fnTeller) SetTokenURI(tid TokenID, uri TokenURI) error {
 	if ft.accountFn == nil {
 		return ErrReadonly
@@ -203,8 +197,6 @@ func (ft *fnTeller) isApprovedOrOwner(addr address, tid TokenID) bool {
 	return approved == addr
 }
 
-// accountSlugAddr returns a sub-account address derived from a base
-// realm address and a slug.
 func accountSlugAddr(addr address, slug string) address {
 	if slug == "" {
 		return addr
