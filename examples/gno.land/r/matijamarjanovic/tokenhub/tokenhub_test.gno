@@ -33,20 +33,17 @@ func TestNFTRegistration(t *testing.T) {
 	resetState(t)
 	testing.SetRealm(testing.NewCodeRealm(testRealmPkgPath))
 
-	nft := grc721.NewBasicNFT("Test NFT", "TNFT")
-	nft.Mint(runtime.CurrentRealm().Address(), grc721.TokenID("1"))
-	err := RegisterNFT(cross, nft.Getter(), "test_nft", "1")
+	nft, ledger := grc721.NewNFT("Test NFT", "TNFT")
+	ledger.Mint(runtime.CurrentRealm().Address(), grc721.TokenID("1"))
+	err := RegisterNFT(cross, nft, "test_nft", "1")
 
 	urequire.NoError(t, err, "Should register NFT without error")
 
 	retrievedNFT := GetNFT(testRealmPkgPath + ".test_nft.1")
 
 	urequire.True(t, retrievedNFT != nil, "Should retrieve registered NFT")
-
-	metadata, ok := retrievedNFT.(grc721.IGRC721CollectionMetadata)
-	urequire.True(t, ok, "NFT should implement IGRC721CollectionMetadata")
-	uassert.Equal(t, "Test NFT", metadata.Name(), "NFT name should match")
-	uassert.Equal(t, "TNFT", metadata.Symbol(), "NFT symbol should match")
+	uassert.Equal(t, "Test NFT", retrievedNFT.Name(), "NFT name should match")
+	uassert.Equal(t, "TNFT", retrievedNFT.Symbol(), "NFT symbol should match")
 }
 
 func TestGRC1155Registration(t *testing.T) {
@@ -78,9 +75,9 @@ func TestBalanceRetrieval(t *testing.T) {
 	uassert.True(t, strings.Contains(balances,
 		"Token:gno.land/r/matijamarjanovic/tokenhub.test_token:1000"), "Should show correct GRC20 balance")
 
-	nft := grc721.NewBasicNFT("Test NFT", "TNFT")
-	nft.Mint(runtime.CurrentRealm().Address(), grc721.TokenID("1"))
-	uassert.NoError(t, RegisterNFT(cross, nft.Getter(), "test_nft", "1"))
+	nft, nftLedger := grc721.NewNFT("Test NFT", "TNFT")
+	nftLedger.Mint(runtime.CurrentRealm().Address(), grc721.TokenID("1"))
+	uassert.NoError(t, RegisterNFT(cross, nft, "test_nft", "1"))
 
 	balances = GetUserNFTBalances(runtime.CurrentRealm().Address().String())
 	uassert.True(t, strings.Contains(balances, "NFT:"+testRealmPkgPath+".test_nft.1"), "Should show correct NFT balance")
@@ -101,10 +98,12 @@ func TestErrorCases(t *testing.T) {
 	resetState(t)
 	testing.SetRealm(testing.NewCodeRealm(testRealmPkgPath))
 
-	nft := grc721.NewBasicNFT("Test NFT", "TNFT")
-	err := RegisterNFT(cross, nft.Getter(), "test_nft", "1")
+	nft, ledger := grc721.NewNFT("Test NFT", "TNFT")
+	ledger.Mint(runtime.CurrentRealm().Address(), grc721.TokenID("1"))
+	err := RegisterNFT(cross, nft, "test_nft", "1")
+	urequire.NoError(t, err)
 
-	err = RegisterNFT(cross, nft.Getter(), "test_nft", "1")
+	err = RegisterNFT(cross, nft, "test_nft", "1")
 	uassert.True(t, err != nil, "Should not allow duplicate registration")
 
 	mt := grc1155.NewBasicGRC1155Token("test-uri")
@@ -125,9 +124,9 @@ func TestTokenListingFunctions(t *testing.T) {
 	uassert.True(t, strings.Contains(grc20List, "Token:gno.land/r/matijamarjanovic/tokenhub.listing_token"),
 		"GetAllGRC20Tokens should list registered token")
 
-	nftToken := grc721.NewBasicNFT("Listing NFT", "LNFT")
-	nftToken.Mint(address("g1ej0qca5ptsw9kfr64ey8jvfy9eacga6mpj2z0y"), grc721.TokenID("1"))
-	RegisterNFT(cross, nftToken.Getter(), "listing_nft", "1")
+	nftToken, nftLedger := grc721.NewNFT("Listing NFT", "LNFT")
+	nftLedger.Mint(address("g1ej0qca5ptsw9kfr64ey8jvfy9eacga6mpj2z0y"), grc721.TokenID("1"))
+	RegisterNFT(cross, nftToken, "listing_nft", "1")
 
 	nftList := GetAllNFTs()
 	uassert.True(t, strings.Contains(nftList, "NFT:"+testRealmPkgPath+".listing_nft.1"),
@@ -165,14 +164,12 @@ func TestMustGetFunctions(t *testing.T) {
 	}()
 	MustGetToken("non_existent_token")
 
-	nft := grc721.NewBasicNFT("Must NFT", "MNFT")
-	nft.Mint(runtime.CurrentRealm().Address(), grc721.TokenID("1"))
-	RegisterNFT(cross, nft.Getter(), "must_nft", "1")
+	nft, ledger := grc721.NewNFT("Must NFT", "MNFT")
+	ledger.Mint(runtime.CurrentRealm().Address(), grc721.TokenID("1"))
+	RegisterNFT(cross, nft, "must_nft", "1")
 
 	retrievedNFT := MustGetNFT("gno.land/r/matijamarjanovic/home.must_nft.1")
-	metadata, ok := retrievedNFT.(grc721.IGRC721CollectionMetadata)
-	urequire.True(t, ok, "NFT should implement IGRC721CollectionMetadata")
-	uassert.Equal(t, "Must NFT", metadata.Name(), "NFT name should match")
+	uassert.Equal(t, "Must NFT", retrievedNFT.Name(), "NFT name should match")
 
 	defer func() {
 		r := recover()
@@ -185,7 +182,7 @@ func TestMustGetFunctions(t *testing.T) {
 	RegisterMultiToken(cross, mt.Getter(), "must_mt")
 
 	retrievedMT := MustGetMultiToken("gno.land/r/matijamarjanovic/home.must_mt")
-	_, ok = retrievedMT.(grc1155.IGRC1155)
+	_, ok := retrievedMT.(grc1155.IGRC1155)
 	urequire.True(t, ok, "Retrieved multi-token should implement IGRC1155")
 
 	defer func() {

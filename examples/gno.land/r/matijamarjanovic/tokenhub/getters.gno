@@ -47,21 +47,21 @@ func MustGetToken(key string) *grc20.Token {
 }
 
 // GetNFT returns an NFT instance for a given key
-func GetNFT(key string) grc721.IGRC721 {
-	nftGetter, ok := registeredNFTs.Get(key)
+func GetNFT(key string) *grc721.NFT {
+	val, ok := registeredNFTs.Get(key)
 	if !ok {
 		return nil
 	}
-	return (nftGetter.(grc721.NFTGetter))()
+	return val.(*grc721.NFT)
 }
 
 // MustGetNFT returns an NFT instance for a given key, panics if the NFT is not found
-func MustGetNFT(key string) grc721.IGRC721 {
-	nftGetter := GetNFT(key)
-	if nftGetter == nil {
+func MustGetNFT(key string) *grc721.NFT {
+	nft := GetNFT(key)
+	if nft == nil {
 		panic("unknown NFT: " + key)
 	}
-	return nftGetter
+	return nft
 }
 
 // GetMultiToken returns a multi-token instance for a given key
@@ -138,8 +138,7 @@ func getNFTBalances(input string) string {
 	var out string
 
 	registeredNFTs.Iterate("", "", func(key string, value interface{}) bool {
-		nftGetter := value.(grc721.NFTGetter)
-		nft := nftGetter()
+		nft := value.(*grc721.NFT)
 		key_parts := strings.Split(key, ".")
 		owner, err := nft.OwnerOf(grc721.TokenID(key_parts[len(key_parts)-1]))
 		if err == nil && addr == owner { // show only the nfts owner owns
