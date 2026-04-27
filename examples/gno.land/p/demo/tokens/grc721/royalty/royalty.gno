@@ -14,7 +14,7 @@ import (
 	"math/overflow"
 
 	"gno.land/p/demo/tokens/grc721"
-	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/bptree/v0"
 )
 
 const (
@@ -54,7 +54,7 @@ type RoyaltyNFT struct {
 // operations. As with grc721.PrivateLedger, possessing this pointer is
 // the authorization gate; it must be kept private by the host realm.
 type PrivateLedger struct {
-	royalties  *avl.Tree
+	royalties  *bptree.BPTree
 	maxBps     int64
 	rNFT       *RoyaltyNFT
 	coreLedger *grc721.PrivateLedger
@@ -80,7 +80,7 @@ func NewRoyaltyNFT(name, symbol string, maxBps int64) (*RoyaltyNFT, *grc721.Priv
 
 	nft, coreLedger := grc721.NewNFT(name, symbol)
 	rLedger := &PrivateLedger{
-		royalties:  avl.NewTree(),
+		royalties:  bptree.NewBPTree32(),
 		maxBps:     maxBps,
 		coreLedger: coreLedger,
 	}

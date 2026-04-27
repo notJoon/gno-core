@@ -3,7 +3,7 @@ package grc721
 import (
 	"chain/runtime"
 
-	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
 
@@ -30,11 +30,11 @@ type NFT struct {
 // this pointer in an unexported variable; public exposure leaks
 // unrestricted admin access (Mint, Burn, override-Approve, ...).
 type PrivateLedger struct {
-	owners            avl.Tree // TokenID    -> address
-	balances          avl.Tree // address    -> int64
-	tokenApprovals    avl.Tree // TokenID    -> address
-	tokenURIs         avl.Tree // TokenID    -> string
-	operatorApprovals avl.Tree // owner+":"+op -> bool
+	owners            bptree.BPTree // TokenID    -> address
+	balances          bptree.BPTree // address    -> int64
+	tokenApprovals    bptree.BPTree // TokenID    -> address
+	tokenURIs         bptree.BPTree // TokenID    -> string
+	operatorApprovals bptree.BPTree // owner+":"+op -> bool
 	nft               *NFT
 }
 

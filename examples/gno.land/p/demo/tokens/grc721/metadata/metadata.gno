@@ -16,7 +16,7 @@ import (
 	"errors"
 
 	"gno.land/p/demo/tokens/grc721"
-	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/bptree/v0"
 )
 
 // Trait is one OpenSea-style attribute entry.
@@ -58,7 +58,7 @@ type MetadataNFT struct {
 // PrivateLedger holds metadata state and exposes admin-grade metadata
 // operations. Possessing this pointer is the authorization gate.
 type PrivateLedger struct {
-	entries    *avl.Tree
+	entries    *bptree.BPTree
 	mNFT       *MetadataNFT
 	coreLedger *grc721.PrivateLedger
 }
@@ -73,7 +73,7 @@ type PrivateLedger struct {
 func NewMetadataNFT(name, symbol string) (*MetadataNFT, *grc721.PrivateLedger, *PrivateLedger) {
 	nft, coreLedger := grc721.NewNFT(name, symbol)
 	mLedger := &PrivateLedger{
-		entries:    avl.NewTree(),
+		entries:    bptree.NewBPTree32(),
 		coreLedger: coreLedger,
 	}
 	mNFT := &MetadataNFT{
