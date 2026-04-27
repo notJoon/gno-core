@@ -127,9 +127,6 @@ type fnTeller struct {
 // CallerTeller returns a Teller that resolves the acting principal from
 // runtime.PreviousRealm() per call.
 func (m *MetadataNFT) CallerTeller() Teller {
-	if m == nil {
-		panic("MetadataNFT cannot be nil")
-	}
 	return &fnTeller{
 		Teller:    m.NFT.CallerTeller(),
 		mNFT:      m,
@@ -140,9 +137,6 @@ func (m *MetadataNFT) CallerTeller() Teller {
 // ReadonlyTeller returns a Teller whose write methods all return
 // grc721.ErrReadonly.
 func (m *MetadataNFT) ReadonlyTeller() Teller {
-	if m == nil {
-		panic("MetadataNFT cannot be nil")
-	}
 	return &fnTeller{
 		Teller:    m.NFT.ReadonlyTeller(),
 		mNFT:      m,
@@ -156,9 +150,6 @@ func (m *MetadataNFT) ReadonlyTeller() Teller {
 // WARN: must be invoked inside a crossing function so PreviousRealm
 // resolves to the realm that should own the resulting Teller.
 func (m *MetadataNFT) RealmTeller() Teller {
-	if m == nil {
-		panic("MetadataNFT cannot be nil")
-	}
 	caller := runtime.PreviousRealm().Address()
 	return &fnTeller{
 		Teller:    m.NFT.RealmTeller(),
@@ -170,9 +161,6 @@ func (m *MetadataNFT) RealmTeller() Teller {
 // ImpersonateTeller returns a Teller acting as addr for both core and
 // metadata methods.
 func (l *PrivateLedger) ImpersonateTeller(addr address) Teller {
-	if l == nil {
-		panic("ledger cannot be nil")
-	}
 	return &fnTeller{
 		Teller:    l.coreLedger.ImpersonateTeller(addr),
 		mNFT:      l.mNFT,

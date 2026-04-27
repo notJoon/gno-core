@@ -95,7 +95,7 @@ func (n *NFT) BalanceOf(addr address) (int64, error) {
 // OwnerOf returns the address that currently owns tid, or
 // ErrInvalidTokenId if the token does not exist.
 func (n *NFT) OwnerOf(tid TokenID) (address, error) {
-	owner, found := n.ledger.owners.Get(string(tid))
+	owner, found := n.ledger.owners.Get(tid.String())
 	if !found {
 		return "", ErrInvalidTokenId
 	}
@@ -112,11 +112,11 @@ func (n *NFT) TokenURI(tid TokenID) (string, error) {
 }
 
 // GetApproved returns the address approved to act on tid, or
-// zeroAddress with ErrTokenIdNotHasApproved when no approval is set.
+// the empty address with ErrTokenIdNotHasApproved when no approval is set.
 func (n *NFT) GetApproved(tid TokenID) (address, error) {
 	addr, found := n.ledger.tokenApprovals.Get(tid.String())
 	if !found {
-		return zeroAddress, ErrTokenIdNotHasApproved
+		return "", ErrTokenIdNotHasApproved
 	}
 	return addr.(address), nil
 }
@@ -133,8 +133,8 @@ func (n *NFT) IsApprovedForAll(owner, op address) bool {
 
 // RenderHome returns a markdown summary of the collection.
 func (n *NFT) RenderHome() string {
-	str := ufmt.Sprintf("# %s ($%s)\n\n", n.name, n.symbol)
-	str += ufmt.Sprintf("* **Total supply**: %d\n", n.TokenCount())
-	str += ufmt.Sprintf("* **Known accounts**: %d\n", n.ledger.balances.Size())
-	return str
+	return ufmt.Sprintf(
+		"# %s ($%s)\n\n* **Total supply**: %d\n* **Known accounts**: %d\n",
+		n.name, n.symbol, n.TokenCount(), n.ledger.balances.Size(),
+	)
 }

@@ -30,14 +30,12 @@ type IGRC721Metadata interface {
 }
 
 // IGRC721Enumerable exposes the supply-counting portion of the EIP-721
-// enumerable extension. TokenByIndex and TokenOfOwnerByIndex are out of
-// scope for this refactor.
+// enumerable extension. TokenByIndex and TokenOfOwnerByIndex are not
+// implemented yet.
 type IGRC721Enumerable interface {
 	TotalSupply() int64
 }
 
-// Compile-time interface satisfaction. Keeps the type/interface
-// relationships visible at a glance.
 var (
 	_ IGRC721CollectionMetadata = (*NFT)(nil)
 	_ IGRC721Enumerable         = (*NFT)(nil)

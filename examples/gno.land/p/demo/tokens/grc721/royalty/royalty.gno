@@ -153,9 +153,6 @@ type fnTeller struct {
 // CallerTeller returns a Teller that resolves the acting principal from
 // runtime.PreviousRealm() per call. Safe to expose publicly.
 func (r *RoyaltyNFT) CallerTeller() Teller {
-	if r == nil {
-		panic("RoyaltyNFT cannot be nil")
-	}
 	return &fnTeller{
 		Teller:    r.NFT.CallerTeller(),
 		rNFT:      r,
@@ -166,9 +163,6 @@ func (r *RoyaltyNFT) CallerTeller() Teller {
 // ReadonlyTeller returns a Teller whose write methods all return
 // grc721.ErrReadonly.
 func (r *RoyaltyNFT) ReadonlyTeller() Teller {
-	if r == nil {
-		panic("RoyaltyNFT cannot be nil")
-	}
 	return &fnTeller{
 		Teller:    r.NFT.ReadonlyTeller(),
 		rNFT:      r,
@@ -182,9 +176,6 @@ func (r *RoyaltyNFT) ReadonlyTeller() Teller {
 // WARN: must be invoked inside a crossing function so PreviousRealm
 // resolves to the realm that should own the resulting Teller.
 func (r *RoyaltyNFT) RealmTeller() Teller {
-	if r == nil {
-		panic("RoyaltyNFT cannot be nil")
-	}
 	caller := runtime.PreviousRealm().Address()
 	return &fnTeller{
 		Teller:    r.NFT.RealmTeller(),
@@ -197,9 +188,6 @@ func (r *RoyaltyNFT) RealmTeller() Teller {
 // royalty methods. Reserved for admin paths; possessing the royalty
 // *PrivateLedger is the authorization gate.
 func (l *PrivateLedger) ImpersonateTeller(addr address) Teller {
-	if l == nil {
-		panic("ledger cannot be nil")
-	}
 	return &fnTeller{
 		Teller:    l.coreLedger.ImpersonateTeller(addr),
 		rNFT:      l.rNFT,

@@ -39,12 +39,8 @@ func (l *PrivateLedger) Mint(to address, tid TokenID) error {
 	return nil
 }
 
-// SafeMint creates token tid owned by to.
-//
-// Deprecated: SafeMint currently performs no receiver check and behaves
-// identically to Mint. A registry-based receiver check is tracked at
-// https://github.com/gnolang/gno/issues/5546 and will replace this in a
-// follow-up.
+// SafeMint currently aliases Mint: there is no registry-based receiver
+// check yet (see https://github.com/gnolang/gno/issues/5546).
 func (l *PrivateLedger) SafeMint(to address, tid TokenID) error {
 	return l.Mint(to, tid)
 }
@@ -91,10 +87,10 @@ func (l *PrivateLedger) Burn(tid TokenID) error {
 //   - from != to
 func (l *PrivateLedger) Transfer(from, to address, tid TokenID) error {
 	if err := isValidAddress(from); err != nil {
-		return ErrInvalidAddress
+		return err
 	}
 	if err := isValidAddress(to); err != nil {
-		return ErrInvalidAddress
+		return err
 	}
 	if from == to {
 		return ErrCannotTransferToSelf
@@ -178,23 +174,24 @@ func (l *PrivateLedger) Approve(to address, tid TokenID) error {
 //   - owner != op
 func (l *PrivateLedger) SetApprovalForAll(owner, op address, approved bool) error {
 	if err := isValidAddress(owner); err != nil {
-		return ErrInvalidAddress
+		return err
 	}
 	if err := isValidAddress(op); err != nil {
-		return ErrInvalidAddress
+		return err
 	}
 	if owner == op {
 		return ErrApprovalToCurrentOwner
 	}
 
-	key := owner.String() + ":" + op.String()
-	l.operatorApprovals.Set(key, approved)
+	ownerStr := owner.String()
+	opStr := op.String()
+	l.operatorApprovals.Set(ownerStr+":"+opStr, approved)
 
 	chain.Emit(
 		ApprovalForAllEvent,
 		"slug", l.nft.symbol,
-		"owner", owner.String(),
-		"to", op.String(),
+		"owner", ownerStr,
+		"to", opStr,
 		"approved", strconv.FormatBool(approved),
 	)
 	return nil
@@ -211,8 +208,6 @@ func (l *PrivateLedger) SetTokenURI(tid TokenID, uri TokenURI) error {
 	l.tokenURIs.Set(tid.String(), uri.String())
 	return nil
 }
-
-// internal helpers used only within this package.
 
 func (l *PrivateLedger) exists(tid TokenID) bool {
 	_, found := l.owners.Get(tid.String())

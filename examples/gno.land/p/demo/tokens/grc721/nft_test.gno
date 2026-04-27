@@ -132,15 +132,11 @@ func TestNFT_IsApprovedForAll(t *testing.T) {
 func TestNFT_ID(t *testing.T) {
 	nft, _ := NewNFT(newNFTName, newNFTSymbol)
 	id := nft.ID()
-	// origRealm is captured from the test runtime; we only assert the
-	// id ends with "."+symbol so the format is non-trivial.
 	suffix := "." + newNFTSymbol
 	if len(id) < len(suffix) || id[len(id)-len(suffix):] != suffix {
 		t.Errorf("ID() = %q; want suffix %q", id, suffix)
 	}
 }
-
-// PrivateLedger admin-grade tests — no caller resolution, no authorization.
 
 func TestPrivateLedger_Mint_Duplicate(t *testing.T) {
 	_, ledger := NewNFT(newNFTName, newNFTSymbol)
@@ -175,8 +171,6 @@ func TestPrivateLedger_Burn_Missing(t *testing.T) {
 }
 
 func TestPrivateLedger_Transfer_Admin(t *testing.T) {
-	// Transfer on the ledger requires no caller check; possessing the
-	// pointer is the authorization.
 	nft, ledger := NewNFT(newNFTName, newNFTSymbol)
 	from := testutils.TestAddress("from")
 	to := testutils.TestAddress("to")
@@ -217,7 +211,6 @@ func TestPrivateLedger_Transfer_SelfRejected(t *testing.T) {
 }
 
 func TestPrivateLedger_Approve_Admin(t *testing.T) {
-	// Approve on the ledger does not check caller is owner.
 	nft, ledger := NewNFT(newNFTName, newNFTSymbol)
 	owner := testutils.TestAddress("owner")
 	approved := testutils.TestAddress("approved")
@@ -240,7 +233,6 @@ func TestPrivateLedger_Approve_ToOwnerRejected(t *testing.T) {
 }
 
 func TestPrivateLedger_SetTokenURI_Admin(t *testing.T) {
-	// SetTokenURI on the ledger does not require caller == owner.
 	nft, ledger := NewNFT(newNFTName, newNFTSymbol)
 	owner := testutils.TestAddress("owner")
 	uri := "ipfs://example/1"

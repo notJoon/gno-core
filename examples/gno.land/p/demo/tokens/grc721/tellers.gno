@@ -51,9 +51,6 @@ var _ Teller = (*fnTeller)(nil)
 // publicly so users can manipulate their own tokens directly, or so
 // realms can act through their allowance.
 func (n *NFT) CallerTeller() Teller {
-	if n == nil {
-		panic("NFT cannot be nil")
-	}
 	return &fnTeller{
 		accountFn: func() address {
 			return runtime.PreviousRealm().Address()
@@ -65,9 +62,6 @@ func (n *NFT) CallerTeller() Teller {
 // ReadonlyTeller returns a Teller whose write methods all return
 // ErrReadonly. Read methods pass through to *NFT unchanged.
 func (n *NFT) ReadonlyTeller() Teller {
-	if n == nil {
-		panic("NFT cannot be nil")
-	}
 	return &fnTeller{
 		accountFn: nil,
 		NFT:       n,
@@ -82,9 +76,6 @@ func (n *NFT) ReadonlyTeller() Teller {
 // WARN: Should be initialized within a crossing function. This way the
 // realm that created the teller will match what PreviousRealm reports.
 func (n *NFT) RealmTeller() Teller {
-	if n == nil {
-		panic("NFT cannot be nil")
-	}
 	caller := runtime.PreviousRealm().Address()
 	return &fnTeller{
 		accountFn: func() address { return caller },
@@ -97,9 +88,6 @@ func (n *NFT) RealmTeller() Teller {
 //
 // WARN: Same crossing-function caveat as RealmTeller.
 func (n *NFT) RealmSubTeller(slug string) Teller {
-	if n == nil {
-		panic("NFT cannot be nil")
-	}
 	caller := runtime.PreviousRealm().Address()
 	account := accountSlugAddr(caller, slug)
 	return &fnTeller{
@@ -115,9 +103,6 @@ func (n *NFT) RealmSubTeller(slug string) Teller {
 // Use with caution: this allows operations to be performed under the
 // guise of another address.
 func (l *PrivateLedger) ImpersonateTeller(addr address) Teller {
-	if l == nil {
-		panic("ledger cannot be nil")
-	}
 	return &fnTeller{
 		accountFn: func() address { return addr },
 		NFT:       l.nft,
@@ -149,11 +134,9 @@ func (ft *fnTeller) TransferFrom(from, to address, tid TokenID) error {
 	return ft.NFT.ledger.Transfer(from, to, tid)
 }
 
-// SafeTransferFrom currently behaves identically to TransferFrom.
-//
-// Deprecated: SafeTransferFrom performs no receiver check and is an
-// alias of TransferFrom until a registry-based receiver check lands;
-// see https://github.com/gnolang/gno/issues/5546. New code should call
+// SafeTransferFrom currently aliases TransferFrom: there is no
+// registry-based receiver check yet (see
+// https://github.com/gnolang/gno/issues/5546). New code should call
 // TransferFrom directly.
 func (ft *fnTeller) SafeTransferFrom(from, to address, tid TokenID) error {
 	return ft.TransferFrom(from, to, tid)
@@ -188,8 +171,8 @@ func (ft *fnTeller) SetApprovalForAll(op address, approved bool) error {
 
 // SetTokenURI sets the URI of tid. The caller must be the owner of tid.
 //
-// The boolean return is retained for backward compatibility with the
-// legacy IGRC721 interface; new code can ignore it.
+// The boolean return mirrors the EIP-721 metadata extension shape; new
+// code can ignore it.
 func (ft *fnTeller) SetTokenURI(tid TokenID, uri TokenURI) (bool, error) {
 	if ft.accountFn == nil {
 		return false, ErrReadonly
