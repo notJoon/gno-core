@@ -65,7 +65,11 @@ func (l *PrivateLedger) Burn(tid TokenID) error {
 	bal = overflow.Sub64p(bal, 1)
 
 	ownerStr := owner.String()
-	l.balances.Set(ownerStr, bal)
+	if bal == 0 {
+		l.balances.Remove(ownerStr)
+	} else {
+		l.balances.Set(ownerStr, bal)
+	}
 	l.owners.Remove(tidStr)
 
 	chain.Emit(
@@ -120,7 +124,11 @@ func (l *PrivateLedger) Transfer(from, to address, tid TokenID) error {
 
 	fromStr := from.String()
 	toStr := to.String()
-	l.balances.Set(fromStr, fromBal)
+	if fromBal == 0 {
+		l.balances.Remove(fromStr)
+	} else {
+		l.balances.Set(fromStr, fromBal)
+	}
 	l.balances.Set(toStr, toBal)
 	l.owners.Set(tidStr, to)
 
