@@ -193,7 +193,12 @@ func (l *PrivateLedger) SetApprovalForAll(owner, op address, approved bool) erro
 
 	ownerStr := owner.String()
 	opStr := op.String()
-	l.operatorApprovals.Set(ownerStr+":"+opStr, approved)
+	key := ownerStr + ":" + opStr
+	if approved {
+		l.operatorApprovals.Set(key, true)
+	} else {
+		l.operatorApprovals.Remove(key)
+	}
 
 	chain.Emit(
 		ApprovalForAllEvent,
