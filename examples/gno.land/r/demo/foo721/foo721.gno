@@ -8,9 +8,9 @@ import (
 )
 
 var (
-	admin   address = "g1rp7cmetn27eqlpjpc4vuusf8kaj746tysc0qgh" // govdao t1 multisig
-	foo, fooLedger  = grc721.NewNFT("FooNFT", "FNFT")
-	UserTeller      = foo.CallerTeller()
+	admin          address = "g1rp7cmetn27eqlpjpc4vuusf8kaj746tysc0qgh" // govdao t1 multisig
+	foo, fooLedger         = grc721.NewNFT("FooNFT", "FNFT")
+	UserTeller             = foo.CallerTeller()
 )
 
 func init() {
