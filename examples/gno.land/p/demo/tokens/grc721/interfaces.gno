@@ -22,11 +22,18 @@ type IGRC721CollectionMetadata interface {
 	Symbol() string
 }
 
-// IGRC721Metadata is the per-token metadata extension surface.
+// IGRC721Metadata is the read-only per-token metadata surface. *NFT
+// satisfies it directly; consumers that only need to inspect metadata
+// can target this interface.
 type IGRC721Metadata interface {
 	IGRC721CollectionMetadata
 	TokenURI(tid TokenID) (string, error)
-	SetTokenURI(tid TokenID, uri TokenURI) (bool, error)
+}
+
+// IGRC721MetadataWriter is the metadata write surface, separated so
+// read-only types are not forced to expose mutation.
+type IGRC721MetadataWriter interface {
+	SetTokenURI(tid TokenID, uri TokenURI) error
 }
 
 // IGRC721Enumerable exposes the supply-counting portion of the EIP-721
@@ -38,7 +45,9 @@ type IGRC721Enumerable interface {
 
 var (
 	_ IGRC721CollectionMetadata = (*NFT)(nil)
+	_ IGRC721Metadata           = (*NFT)(nil)
 	_ IGRC721Enumerable         = (*NFT)(nil)
 	_ IGRC721Core               = (*fnTeller)(nil)
 	_ IGRC721Metadata           = (*fnTeller)(nil)
+	_ IGRC721MetadataWriter     = (*fnTeller)(nil)
 )

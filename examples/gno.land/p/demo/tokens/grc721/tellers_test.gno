@@ -156,9 +156,7 @@ func TestCallerTeller_SetTokenURI(t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
 	func() {
 		testing.SetRealm(testing.NewCodeRealm("gno.land/r/test/test"))
-		ok, err := teller.SetTokenURI(TokenID("1"), TokenURI(uri))
-		uassert.NoError(t, err)
-		uassert.True(t, ok)
+		uassert.NoError(t, teller.SetTokenURI(TokenID("1"), TokenURI(uri)))
 	}()
 
 	got, err := nft.TokenURI(TokenID("1"))
@@ -178,7 +176,7 @@ func TestCallerTeller_SetTokenURI_NotOwner(t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(eve))
 	func() {
 		testing.SetRealm(testing.NewCodeRealm("gno.land/r/test/test"))
-		_, err := teller.SetTokenURI(TokenID("1"), TokenURI("ipfs://x"))
+		err := teller.SetTokenURI(TokenID("1"), TokenURI("ipfs://x"))
 		uassert.ErrorIs(t, err, ErrCallerIsNotOwner)
 	}()
 }
@@ -214,7 +212,7 @@ func TestReadonlyTeller_WritesReturnError(t *testing.T) {
 	uassert.ErrorIs(t, teller.Approve(alice, TokenID("1")), ErrReadonly)
 	uassert.ErrorIs(t, teller.SetApprovalForAll(alice, true), ErrReadonly)
 
-	_, err := teller.SetTokenURI(TokenID("1"), TokenURI("ipfs://x"))
+	err := teller.SetTokenURI(TokenID("1"), TokenURI("ipfs://x"))
 	uassert.ErrorIs(t, err, ErrReadonly)
 }
 

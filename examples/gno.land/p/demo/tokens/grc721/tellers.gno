@@ -30,7 +30,7 @@ type Teller interface {
 	SafeTransferFrom(from, to address, tid TokenID) error
 	Approve(to address, tid TokenID) error
 	SetApprovalForAll(op address, approved bool) error
-	SetTokenURI(tid TokenID, uri TokenURI) (bool, error)
+	SetTokenURI(tid TokenID, uri TokenURI) error
 }
 
 // fnTeller is the canonical Teller implementation. It wraps an *NFT
@@ -170,25 +170,19 @@ func (ft *fnTeller) SetApprovalForAll(op address, approved bool) error {
 }
 
 // SetTokenURI sets the URI of tid. The caller must be the owner of tid.
-//
-// The boolean return mirrors the EIP-721 metadata extension shape; new
-// code can ignore it.
-func (ft *fnTeller) SetTokenURI(tid TokenID, uri TokenURI) (bool, error) {
+func (ft *fnTeller) SetTokenURI(tid TokenID, uri TokenURI) error {
 	if ft.accountFn == nil {
-		return false, ErrReadonly
+		return ErrReadonly
 	}
 	caller := ft.accountFn()
 	owner, err := ft.NFT.OwnerOf(tid)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if caller != owner {
-		return false, ErrCallerIsNotOwner
+		return ErrCallerIsNotOwner
 	}
-	if err := ft.NFT.ledger.SetTokenURI(tid, uri); err != nil {
-		return false, err
-	}
-	return true, nil
+	return ft.NFT.ledger.SetTokenURI(tid, uri)
 }
 
 // isApprovedOrOwner reports whether addr is allowed to act on tid:
