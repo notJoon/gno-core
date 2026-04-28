@@ -379,6 +379,11 @@ func prepareGoGno0p9(f *ast.File) (err error) {
 		case *ast.FuncDecl:
 			name := gon.Name.String()
 			if gon.Recv == nil && (name == "main" || name == "init") {
+				// Body-less declarations (e.g. `func main(A)` without
+				// a block) have nothing to inject cur/cross into.
+				if gon.Body == nil {
+					return true
+				}
 				if len(gon.Type.Params.List) == 1 { // `cur realm`
 					gon.Type.Params.List = nil
 				} else {
