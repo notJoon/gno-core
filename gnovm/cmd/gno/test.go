@@ -264,6 +264,7 @@ func execTest(cmd *testCmd, args []string, io commands.IO) error {
 			WithExamples: true,
 			Testing:      true,
 			Coverage:     true,
+			Packages:     pkgs,
 		}
 		opts.BaseStore, opts.TestStore = test.StoreWithOptions(cmd.rootDir, opts.WriterForStore(), storeOpts)
 	}
