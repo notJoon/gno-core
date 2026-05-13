@@ -91,7 +91,10 @@ detect_platform() {
 }
 
 check_deps() {
-    command -v curl    >/dev/null 2>&1 || die "curl is required"
+    if   command -v curl >/dev/null 2>&1; then HTTP_TOOL="curl"
+    elif command -v wget >/dev/null 2>&1; then HTTP_TOOL="wget"
+    else die "curl or wget is required"
+    fi
     command -v tar     >/dev/null 2>&1 || die "tar is required"
     command -v install >/dev/null 2>&1 || die "install is required"
 
@@ -120,45 +123,75 @@ restore_xtrace() {
 }
 
 # Do not use for asset downloads: asset URLs redirect to another host and
-# curl headers survive cross-host redirects.
+# Authorization headers must not be forwarded to the CDN.
 api_get() {
     _headers="$TMP/api_headers"
-    if [ -n "${GH_API_TOKEN:+x}" ]; then
-        suspend_xtrace
-        printf 'header = "Authorization: Bearer %s"\n' "$GH_API_TOKEN" \
-            | $CURL -D "$_headers" --config - "$@"
-        _rc=$?
-        restore_xtrace
+    if [ "$HTTP_TOOL" = "curl" ]; then
+        if [ -n "${GH_API_TOKEN:+x}" ]; then
+            suspend_xtrace
+            printf 'header = "Authorization: Bearer %s"\n' "$GH_API_TOKEN" \
+                | $CURL -D "$_headers" --config - "$@"
+            _rc=$?
+            restore_xtrace
+        else
+            $CURL -D "$_headers" "$@"
+            _rc=$?
+        fi
     else
-        $CURL -D "$_headers" "$@"
+        # Capture response headers via stderr so the rate-limit check below
+        # can scan them. Auth (when present) comes from $WGET_AUTH_CFG so the
+        # token never appears on argv (visible via /proc/<pid>/cmdline).
+        if [ -n "$WGET_AUTH_CFG" ]; then
+            $WGET --config="$WGET_AUTH_CFG" --no-verbose -S -O - "$@" 2>"$_headers"
+        else
+            $WGET --no-verbose -S -O - "$@" 2>"$_headers"
+        fi
         _rc=$?
     fi
     if [ "$_rc" -ne 0 ] && [ -z "${GH_API_TOKEN:+x}" ] && [ -f "$_headers" ] \
-        && grep -qi '^x-ratelimit-remaining:[[:space:]]*0[[:space:]]*$' "$_headers" 2>/dev/null; then
+        && grep -qi '^[[:space:]]*x-ratelimit-remaining:[[:space:]]*0[[:space:]]*$' "$_headers" 2>/dev/null; then
         log "GitHub API rate limit exhausted (60/hour anonymous)" >&2
         log "set GITHUB_TOKEN to authenticate; see --help" >&2
     fi
     return $_rc
 }
 
-# Intentionally omits -L: we need the redirect target (signed URL), not
-# the asset content, and Authorization must not reach the CDN host.
+# Intentionally does not follow redirects: we need the redirect target
+# (signed URL), not the asset content, and Authorization must not reach
+# the CDN host.
 resolve_asset() {
-    if [ -n "${GH_API_TOKEN:+x}" ]; then
-        suspend_xtrace
-        printf 'header = "Authorization: Bearer %s"\n' "$GH_API_TOKEN" \
-            | $CURL --config - \
-                -H "Accept: application/octet-stream" \
-                -o /dev/null -w '%{redirect_url}' \
-                "$1"
-        _rc=$?
-        restore_xtrace
-        return $_rc
+    if [ "$HTTP_TOOL" = "curl" ]; then
+        if [ -n "${GH_API_TOKEN:+x}" ]; then
+            suspend_xtrace
+            printf 'header = "Authorization: Bearer %s"\n' "$GH_API_TOKEN" \
+                | $CURL --config - \
+                    -H "Accept: application/octet-stream" \
+                    -o /dev/null -w '%{redirect_url}' \
+                    "$1"
+            _rc=$?
+            restore_xtrace
+            return $_rc
+        fi
+        $CURL \
+            -H "Accept: application/octet-stream" \
+            -o /dev/null -w '%{redirect_url}' \
+            "$1"
+        return $?
     fi
-    $CURL \
-        -H "Accept: application/octet-stream" \
-        -o /dev/null -w '%{redirect_url}' \
-        "$1"
+    # --max-redirect=0 makes the 3xx response a non-zero exit, but -S still
+    # prints the Location header. Ignore the exit and parse it ourselves.
+    _hdr="$TMP/wget_redir.$$"
+    if [ -n "$WGET_AUTH_CFG" ]; then
+        $WGET --config="$WGET_AUTH_CFG" --no-verbose --max-redirect=0 -S \
+            --header="Accept: application/octet-stream" \
+            -O /dev/null "$1" >/dev/null 2>"$_hdr" || true
+    else
+        $WGET --no-verbose --max-redirect=0 -S \
+            --header="Accept: application/octet-stream" \
+            -O /dev/null "$1" >/dev/null 2>"$_hdr" || true
+    fi
+    sed -n 's/\r$//; s/^[[:space:]]*[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]:[[:space:]]*//p' "$_hdr" | head -1
+    rm -f "$_hdr"
 }
 
 # Move GITHUB_TOKEN into a non-exported variable before spawning children.
@@ -218,11 +251,25 @@ asset_url() {
     fi
 }
 
+# Plain GET to file, following redirects. No auth (signed CDN URLs only).
+http_get() {
+    _out="$1"; _url="$2"
+    if [ "$HTTP_TOOL" = "curl" ]; then
+        $CURL -L -o "$_out" "$_url"
+    else
+        $WGET -q -O "$_out" "$_url"
+    fi
+}
+
 install_gno() {
-    # --proto =https and --tlsv1.2 harden the transport; --retry handles flaky nets.
+    # curl: --proto =https and --tlsv1.2 harden the transport, --retry handles flaky nets.
     # -L is added per-call: resolve_asset needs the redirect URL (no follow),
     # downloads of signed URLs follow redirects explicitly.
+    # wget: --https-only enforces HTTPS for redirects; retry/waitretry mirror curl.
     CURL="curl --proto =https --tlsv1.2 -fsS --retry 3 --retry-delay 2"
+    WGET="wget --https-only --tries=3 --waitretry=2"
+
+    [ "$HTTP_TOOL" = "wget" ] && log "curl not found; using wget for downloads"
 
     if [ -n "${GH_API_TOKEN:+x}" ]; then
         log "authenticating GitHub API requests with GITHUB_TOKEN"
@@ -230,6 +277,16 @@ install_gno() {
 
     TMP="$(mktemp -d)"
     trap 'rm -rf "$TMP"' EXIT INT TERM
+
+    # wget cannot read a config from stdin like curl can. Stage the bearer
+    # token in a 0600 file once; the trap above wipes it on exit/interrupt.
+    WGET_AUTH_CFG=""
+    if [ "$HTTP_TOOL" = "wget" ] && [ -n "${GH_API_TOKEN:+x}" ]; then
+        WGET_AUTH_CFG="$TMP/wget_auth.cfg"
+        suspend_xtrace
+        ( umask 077; printf 'header = Authorization: Bearer %s\n' "$GH_API_TOKEN" >"$WGET_AUTH_CFG" )
+        restore_xtrace
+    fi
 
     # GitHub's /releases/latest resolves to whatever it ranks as "latest",
     # which for this repo is a chain/* tag without binaries. Resolve "latest"
@@ -263,11 +320,11 @@ install_gno() {
     suspend_xtrace
     ARCHIVE_SIGNED="$(resolve_asset "$ARCHIVE_URL")"
     [ -n "$ARCHIVE_SIGNED" ] || die "could not resolve $ARCHIVE download URL"
-    $CURL -L -o "$TMP/$ARCHIVE"      "$ARCHIVE_SIGNED" || die "archive download failed"
+    http_get "$TMP/$ARCHIVE"      "$ARCHIVE_SIGNED" || die "archive download failed"
 
     SUMS_SIGNED="$(resolve_asset "$SUMS_URL")"
     [ -n "$SUMS_SIGNED" ] || die "could not resolve checksums.txt download URL"
-    $CURL -L -o "$TMP/checksums.txt" "$SUMS_SIGNED"    || die "checksums download failed"
+    http_get "$TMP/checksums.txt" "$SUMS_SIGNED"    || die "checksums download failed"
     restore_xtrace
 
     expected="$(awk -v n="$ARCHIVE" '$2 == n {print $1; exit}' "$TMP/checksums.txt")"
