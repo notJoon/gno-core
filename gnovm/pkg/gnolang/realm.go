@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"sync"
 
@@ -193,12 +194,12 @@ type Realm struct {
 
 // touchForeignRealm is a pure lookup + cache. It does NOT advance
 // fr.Time — Time advancement happens in assignNewObjectID's own
-// body (targetRlm.Time++) after the lookup returns. Callers reach
-// touchForeignRealm via two distinct routes:
+// body (targetRlm.Time++). The touched map is used via two distinct
+// routes:
 //
 //  1. assignNewObjectID (minting NewTime for a not-yet-finalized
-//     foreign object): the caller advances fr.Time after the
-//     lookup.
+//     foreign object): the caller resolves the realm without
+//     mutation, checks overflow, then advances fr.Time and caches it.
 //  2. saveObject / removeDeletedObjects (routing sumDiff for an
 //     already-real foreign object whose refcount changed): the
 //     caller only reads fr to accrue sumDiff, never touches
@@ -1981,7 +1982,7 @@ func fillTypesOfValue(store Store, val Value) Value {
 //     unattributed authority.
 //   - When oid.PkgID != rlm.ID, the object is foreign-owned;
 //     mint NewTime from the OWNING realm's counter
-//     (rlm.touchForeignRealm). Record the touched foreign realm
+//     (resolved before mutation). Record the touched foreign realm
 //     so FinalizeRealmTransaction's batch-drain persists it.
 //   - Otherwise, mint NewTime from rlm's counter (the self case).
 func (rlm *Realm) assignNewObjectID(store Store, oo Object) ObjectID {
@@ -1989,6 +1990,7 @@ func (rlm *Realm) assignNewObjectID(store Store, oo Object) ObjectID {
 	if oid.IsFinalized() {
 		panic("unexpected already-finalized object id")
 	}
+	adopt := false
 	if oid.PkgID.IsZero() {
 		// Objects allocated outside any realm context (e.g. stdlib
 		// Block init when m.Realm is nil, non-realm filetests) reach
@@ -1996,16 +1998,14 @@ func (rlm *Realm) assignNewObjectID(store Store, oo Object) ObjectID {
 		// finalizing realm — by definition they're part of its state,
 		// not someone else's. No authority leak: stdlib code can't
 		// forge /r/-declared types, only anonymous Blocks/HeapItems.
-		oo.SetPkgID(rlm.ID)
-		oid = oo.GetObjectID()
+		adopt = true
 	} else if oid.PkgID != rlm.ID && isPkgEphemeralFromPkgID(store, oid.PkgID) {
 		// Objects allocated in ephemeral run-realms (`/e/.../run`,
 		// from gnokey maketx run) carry an ephemeral PkgID that won't
 		// exist after the tx. When such an object is being persisted
 		// into a real realm, adopt it: re-stamp PkgID to the persisting
 		// realm so storage rent + future reads route consistently.
-		oo.SetPkgID(rlm.ID)
-		oid = oo.GetObjectID()
+		adopt = true
 	} else if oid.PkgID != rlm.ID && oid.PkgID.IsStdlibPkg() {
 		// An unreal object stamped with a stdlib PkgID arose from a
 		// fresh allocation inside a borrowed stdlib-method body
@@ -2020,12 +2020,35 @@ func (rlm *Realm) assignNewObjectID(store Store, oo Object) ObjectID {
 		// authority. /p/ APIs that produce new state must do so via
 		// top-level functions (where m.Realm stays the caller's) or
 		// take pre-allocated targets as out-parameters.
-		oo.SetPkgID(rlm.ID)
-		oid = oo.GetObjectID()
+		adopt = true
 	}
+
 	targetRlm := rlm
-	if oid.PkgID != rlm.ID {
-		targetRlm = rlm.touchForeignRealm(store, oid.PkgID)
+	cacheForeign := false
+	if !adopt && oid.PkgID != rlm.ID {
+		var ok bool
+		targetRlm, ok = rlm.touchedForeignRealms[oid.PkgID]
+		if !ok {
+			targetRlm = store.GetRealmByID(oid.PkgID)
+			if targetRlm == nil {
+				panic(fmt.Sprintf(
+					"cannot resolve foreign realm %s for cross-realm finalize",
+					oid.PkgID))
+			}
+			cacheForeign = true
+		}
+	}
+	if targetRlm.Time == math.MaxUint64 {
+		panic("realm object ID exhausted")
+	}
+
+	if adopt {
+		oo.SetPkgID(rlm.ID)
+	} else if cacheForeign {
+		if rlm.touchedForeignRealms == nil {
+			rlm.touchedForeignRealms = make(map[PkgID]*Realm, 1)
+		}
+		rlm.touchedForeignRealms[oid.PkgID] = targetRlm
 	}
 	targetRlm.Time++
 	oo.SetNewTime(targetRlm.Time)

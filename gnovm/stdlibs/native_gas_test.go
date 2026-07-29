@@ -6,6 +6,29 @@ import (
 	gno "github.com/gnolang/gno/gnovm/pkg/gnolang"
 )
 
+func TestNativeGasTableExhaustive(t *testing.T) {
+	t.Parallel()
+
+	rows := make(map[string]struct{}, len(calibratedNativeGas))
+	for _, entry := range calibratedNativeGas {
+		key := entry.Pkg + "\x00" + entry.Fn
+		if _, exists := rows[key]; exists {
+			t.Fatalf("duplicate calibrated native gas row for %s/%s", entry.Pkg, entry.Fn)
+		}
+		rows[key] = struct{}{}
+	}
+	for _, native := range nativeFuncs {
+		key := native.gnoPkg + "\x00" + string(native.gnoFunc)
+		if _, exists := rows[key]; !exists {
+			t.Errorf("calibrated native gas row missing for %s/%s", native.gnoPkg, native.gnoFunc)
+		}
+		delete(rows, key)
+	}
+	for key := range rows {
+		t.Errorf("calibrated native gas row has no generated binding: %q", key)
+	}
+}
+
 // realm.Sub charges gas by mirroring chain.packageAddress's calibrated
 // cost (its dominant work is the same bech32 derivation), but it's a
 // uverse native — chargeNativeGas can't read the calibration table for

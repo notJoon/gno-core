@@ -71,6 +71,63 @@ func loadObjectBytesFromDB(baseStore storetypes.Store, oid ObjectID) []byte {
 	return hashbz[HashSize:]
 }
 
+func TestAssignNewObjectIDOverflowDoesNotMutate(t *testing.T) {
+	t.Run("owned", func(t *testing.T) {
+		rlm := NewRealm("gno.land/r/test/overflow")
+		rlm.Time = math.MaxUint64
+		obj := &StructValue{ObjectInfo: ObjectInfo{ID: ObjectID{PkgID: rlm.ID}}}
+
+		require.PanicsWithValue(t, "realm object ID exhausted", func() {
+			rlm.assignNewObjectID(nil, obj)
+		})
+		require.Equal(t, uint64(math.MaxUint64), rlm.Time)
+		require.Zero(t, obj.GetObjectID().NewTime)
+	})
+
+	t.Run("unstamped", func(t *testing.T) {
+		rlm := NewRealm("gno.land/r/test/overflow")
+		rlm.Time = math.MaxUint64
+		obj := &StructValue{}
+
+		require.PanicsWithValue(t, "realm object ID exhausted", func() {
+			rlm.assignNewObjectID(nil, obj)
+		})
+		require.Equal(t, uint64(math.MaxUint64), rlm.Time)
+		require.True(t, obj.GetObjectID().PkgID.IsZero())
+	})
+
+	t.Run("foreign", func(t *testing.T) {
+		rlm := NewRealm("gno.land/r/test/overflow")
+		foreign := NewRealm("gno.land/r/test/foreign")
+		foreign.Time = math.MaxUint64
+		store := &realmLookupStore{Store: nil, realm: foreign}
+		obj := &StructValue{ObjectInfo: ObjectInfo{ID: ObjectID{PkgID: foreign.ID}}}
+
+		require.PanicsWithValue(t, "realm object ID exhausted", func() {
+			rlm.assignNewObjectID(store, obj)
+		})
+		require.Equal(t, uint64(math.MaxUint64), foreign.Time)
+		require.Zero(t, obj.GetObjectID().NewTime)
+		require.Empty(t, rlm.touchedForeignRealms)
+	})
+}
+
+type realmLookupStore struct {
+	Store
+	realm *Realm
+}
+
+func (s *realmLookupStore) GetRealmByID(pid PkgID) *Realm {
+	if pid == s.realm.ID {
+		return s.realm
+	}
+	return nil
+}
+
+func (s *realmLookupStore) GetObject(ObjectID) Object {
+	return nil
+}
+
 // findRefValueByOID searches the serialized form of a parent object for a
 // RefValue that references the given child ObjectID. This lets us verify
 // that the embedded hash matches the child's actual stored hash.

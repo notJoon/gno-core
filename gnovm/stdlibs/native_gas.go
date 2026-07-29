@@ -76,11 +76,12 @@ type nativeGasEntry struct {
 // today, so the table stays single-slope; the schema fields support
 // future natives that genuinely scale on both dimensions.
 //
-// 65 entries — exhaustive coverage of gnovm/stdlibs/generated.go.
+// 66 entries — exhaustive coverage of gnovm/stdlibs/generated.go.
 // The trailing 10 IBC-crypto entries (crypto/bn254, crypto/cometbls,
 // crypto/keccak256, crypto/merkle, crypto/modexp) are draft fits measured
-// on Intel Xeon Silver 4114; the chain/markdown rows and the rest are on
-// Apple M2. The whole table must be regenerated on the reference Xeon 8168
+// on Intel Xeon Silver 4114; chain/newRealmInstanceID is on Apple M5, and the
+// chain/markdown rows and the rest are on Apple M2. The whole table must be
+// regenerated on the reference Xeon 8168
 // before any consensus-relevant deployment; the IBC rows are flagged
 // "draft" in their trailing comment to make that obvious.
 var calibratedNativeGas = []nativeGasEntry{
@@ -89,6 +90,7 @@ var calibratedNativeGas = []nativeGasEntry{
 	{Pkg: "chain", Fn: "packageAddress", Base: 552, Slope: 15201, SlopeIdx: 0, SlopeKind: SizeLenString},                                                       // fit base=552.1ns slope=14.8448ns/N (=15201/1024) R²=0.998; realm.Sub mirrors this — keep gno.OpCPUSubRealmBase/Slope in sync (TestSubRealmGasMirrorsPackageAddress)
 	{Pkg: "chain", Fn: "deriveStorageDepositAddr", Base: 541, Slope: 471, SlopeIdx: 0, SlopeKind: SizeLenString},                                               // fit base=540.9ns slope=0.4602ns/N (=471/1024) R²=0.994
 	{Pkg: "chain", Fn: "pubKeyAddress", Base: 2631, SlopeIdx: -1, SlopeKind: SizeFlat},                                                                         // flat, median 2631.0ns
+	{Pkg: "chain", Fn: "newRealmInstanceID", Base: 495, SlopeIdx: -1, SlopeKind: SizeFlat},                                                                     // flat, median 494.8ns; realm encoding and backing-store writes are metered by SetPackageRealm
 	{Pkg: "time", Fn: "loadFromEmbeddedTZData", Base: 16068, SlopeIdx: -1, SlopeKind: SizeFlat},                                                                // flat, median 16068.0ns
 	{Pkg: "math", Fn: "Float32bits", Base: 32, SlopeIdx: -1, SlopeKind: SizeFlat},                                                                              // flat, median 32.5ns
 	{Pkg: "math", Fn: "Float32frombits", Base: 32, SlopeIdx: -1, SlopeKind: SizeFlat},                                                                          // flat, median 32.4ns

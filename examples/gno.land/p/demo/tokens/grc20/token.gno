@@ -6,31 +6,21 @@ import (
 	"math/overflow"
 	"strconv"
 
-	"gno.land/p/nt/seqid/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
 
-// NewToken creates a Token whose origRealm is bound to the calling realm.
+// NewToken creates a Token whose origin realm is bound to the calling realm.
 // rlm must be the caller's own captured cur (asserted via rlm.IsCurrent()),
-// and rlm.PkgPath() — the calling realm itself — becomes the Token's
-// origRealm. Token.ID() returns origRealm + "." + symbol + "." + id.
+// and rlm.PkgPath() — the calling realm itself — becomes the Token's origin.
+// Token.ID() returns an opaque realm-owned instance identifier.
 //
 // Because IsCurrent runtime-validates that rlm came from the live
-// crossing frame, origRealm is unforgeable: an external realm cannot
+// crossing frame, originRealm is unforgeable: an external realm cannot
 // fabricate a Token claiming to belong to a different package.
 //
-// Realms that create multiple tokens should allocate id from one persistent
-// seqid.ID, shared by every creation path, to avoid conflicting identifiers:
-//
-//	var nextTokenID seqid.ID
-//	Token, ledger := grc20.NewToken("Foo", "FOO", 4, nextTokenID.Next(), cur)
-//
-// A realm that creates only a single token can pass 0 directly, since no
-// other token of that realm can collide with it.
-//
 // If the Token should be discoverable, follow up with
-// grc20reg.Register(cross(cur), Token, slug). The registry key is Token.ID().
-func NewToken(name, symbol string, decimals int, id seqid.ID, rlm realm) (*Token, *PrivateLedger) {
+// grc20reg.Register(cross(cur), Token, slug).
+func NewToken(name, symbol string, decimals int, rlm realm) (*Token, *PrivateLedger) {
 	if !rlm.IsCurrent() {
 		panic(ErrSpoofedRealm)
 	}
@@ -47,13 +37,15 @@ func NewToken(name, symbol string, decimals int, id seqid.ID, rlm realm) (*Token
 	if decimals < 0 || decimals > MaxDecimals {
 		panic(ErrInvalidDecimals)
 	}
+	id := chain.NewRealmInstanceID(0, rlm)
 	ledger := &PrivateLedger{}
 	token := &Token{
-		id:       pkgPath + "." + symbol + "." + id.String(),
-		name:     name,
-		symbol:   symbol,
-		decimals: decimals,
-		ledger:   ledger,
+		id:          id,
+		originRealm: pkgPath,
+		name:        name,
+		symbol:      symbol,
+		decimals:    decimals,
+		ledger:      ledger,
 	}
 	ledger.token = token
 	return token, ledger
@@ -103,43 +95,55 @@ func (tok Token) GetSymbol() string { return tok.symbol }
 func (tok Token) GetDecimals() int { return tok.decimals }
 
 // TotalSupply returns the total supply of the token.
-func (tok Token) TotalSupply() int64 { return tok.ledger.totalSupply }
+func (tok Token) TotalSupply() int64 {
+	return canonicalLedger(nil, tok.ledger).totalSupply
+}
 
 // KnownAccounts returns the number of known accounts in the bank.
-func (tok Token) KnownAccounts() int { return tok.ledger.balances.Size() }
+func (tok Token) KnownAccounts() int {
+	return canonicalLedger(nil, tok.ledger).balances.Size()
+}
 
 // ID returns the Identifier of the token.
-// It is composed of the original realm, the symbol, and the provided id.
 func (tok *Token) ID() string {
+	canonicalLedger(tok, nil)
 	return tok.id
+}
+
+// OriginRealm returns the primary persistent realm that created the token.
+func (tok *Token) OriginRealm() string {
+	canonicalLedger(tok, nil)
+	return tok.originRealm
 }
 
 // HasAddr checks if the specified address is a known account in the bank.
 func (tok Token) HasAddr(addr address) bool {
-	return tok.ledger.hasAddr(addr)
+	return canonicalLedger(nil, tok.ledger).hasAddr(addr)
 }
 
 // BalanceOf returns the balance of the specified address.
 func (tok Token) BalanceOf(addr address) int64 {
-	return tok.ledger.balanceOf(addr)
+	return canonicalLedger(nil, tok.ledger).balanceOf(addr)
 }
 
 // Allowance returns the allowance of the specified owner and spender.
 func (tok Token) Allowance(owner, spender address) int64 {
-	return tok.ledger.allowance(owner, spender)
+	return canonicalLedger(nil, tok.ledger).allowance(owner, spender)
 }
 
 func (tok Token) RenderHome() string {
+	ledger := canonicalLedger(nil, tok.ledger)
 	str := ""
 	str += ufmt.Sprintf("# %s ($%s)\n\n", tok.name, tok.symbol)
 	str += ufmt.Sprintf("* **Decimals**: %d\n", tok.decimals)
-	str += ufmt.Sprintf("* **Total supply**: %d\n", tok.ledger.totalSupply)
+	str += ufmt.Sprintf("* **Total supply**: %d\n", ledger.totalSupply)
 	str += ufmt.Sprintf("* **Known accounts**: %d\n", tok.KnownAccounts())
 	return str
 }
 
 // SpendAllowance decreases the allowance of the specified owner and spender.
 func (led *PrivateLedger) SpendAllowance(owner, spender address, amount int64) error {
+	led = canonicalLedger(nil, led)
 	if !owner.IsValid() || !spender.IsValid() {
 		return ErrInvalidAddress
 	}
@@ -171,6 +175,7 @@ func (led *PrivateLedger) SpendAllowance(owner, spender address, amount int64) e
 
 // Transfer transfers tokens from the specified from address to the specified to address.
 func (led *PrivateLedger) Transfer(from, to address, amount int64) error {
+	led = canonicalLedger(nil, led)
 	if !from.IsValid() {
 		return ErrInvalidAddress
 	}
@@ -220,6 +225,7 @@ func (led *PrivateLedger) Transfer(from, to address, amount int64) error {
 // TransferFrom transfers tokens from the specified owner to the specified to address.
 // It first checks if the owner has sufficient balance and then decreases the allowance.
 func (led *PrivateLedger) TransferFrom(owner, spender, to address, amount int64) error {
+	led = canonicalLedger(nil, led)
 	if amount < 0 {
 		return ErrInvalidAmount
 	}
@@ -247,6 +253,7 @@ func (led *PrivateLedger) TransferFrom(owner, spender, to address, amount int64)
 
 // Approve sets the allowance of the specified owner and spender.
 func (led *PrivateLedger) Approve(owner, spender address, amount int64) error {
+	led = canonicalLedger(nil, led)
 	if !owner.IsValid() || !spender.IsValid() {
 		return ErrInvalidAddress
 	}
@@ -269,6 +276,7 @@ func (led *PrivateLedger) Approve(owner, spender address, amount int64) error {
 
 // Mint increases the total supply of the token and adds the specified amount to the specified address.
 func (led *PrivateLedger) Mint(addr address, amount int64) error {
+	led = canonicalLedger(nil, led)
 	if !addr.IsValid() {
 		return ErrInvalidAddress
 	}
@@ -300,6 +308,7 @@ func (led *PrivateLedger) Mint(addr address, amount int64) error {
 
 // Burn decreases the total supply of the token and subtracts the specified amount from the specified address.
 func (led *PrivateLedger) Burn(addr address, amount int64) error {
+	led = canonicalLedger(nil, led)
 	if !addr.IsValid() {
 		return ErrInvalidAddress
 	}
@@ -358,4 +367,23 @@ func (led PrivateLedger) allowance(owner, spender address) int64 {
 // allowanceKey returns the key for the allowance of the specified owner and spender.
 func allowanceKey(owner, spender address) string {
 	return owner.String() + ":" + spender.String()
+}
+
+// canonicalLedger validates the Token/PrivateLedger back-pointers and returns
+// the canonical ledger. A shallow PrivateLedger copy therefore routes to the
+// original ledger instead of forking state.
+func canonicalLedger(tok *Token, led *PrivateLedger) *PrivateLedger {
+	if tok == nil {
+		if led == nil {
+			panic(canonicalLedgerPanic)
+		}
+		tok = led.token
+	}
+	if tok == nil ||
+		tok.ledger == nil ||
+		tok.ledger.token != tok ||
+		(led != nil && led.token != tok) {
+		panic(canonicalLedgerPanic)
+	}
+	return tok.ledger
 }

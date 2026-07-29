@@ -175,6 +175,27 @@ func BenchmarkNative_Chain_PackageAddress_10(b *testing.B)   { benchChainPackage
 func BenchmarkNative_Chain_PackageAddress_100(b *testing.B)  { benchChainPackageAddress(b, 100) }
 func BenchmarkNative_Chain_PackageAddress_1000(b *testing.B) { benchChainPackageAddress(b, 1000) }
 
+// ----- chain.newRealmInstanceID(pkgPath string) string -----
+
+type noOpRealmStore struct {
+	gno.Store
+}
+
+func (*noOpRealmStore) SetPackageRealm(*gno.Realm) {}
+
+func BenchmarkNative_Chain_NewRealmInstanceID(b *testing.B) {
+	const pkgPath = "gno.land/r/calibrate/instance"
+	m := newDispatchMachine(1)
+	m.Realm = gno.NewRealm(pkgPath)
+	m.Store = &noOpRealmStore{}
+	setBlockValueFromGo(m, 0, pkgPath)
+	h := &dispatchHarness{m: m, wrapper: resolveWrapper(b, "chain", "newRealmInstanceID"), nReturns: 1}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		h.call()
+	}
+}
+
 // ----- chain.deriveStorageDepositAddr(pkgPath string) string -----
 
 func benchChainDeriveStorageDepositAddr(b *testing.B, n int) {

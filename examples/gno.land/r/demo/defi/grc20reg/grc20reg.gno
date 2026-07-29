@@ -2,7 +2,6 @@ package grc20reg
 
 import (
 	"chain"
-	"strings"
 
 	"gno.land/p/demo/tokens/grc20"
 	"gno.land/p/moul/md"
@@ -15,34 +14,31 @@ import (
 var registry = avl.NewTree() // rlmPath.symbol -> *Token
 
 // Construction lives in grc20.NewToken — it takes rlm realm last
-// and binds origRealm from rlm.PkgPath() under an IsCurrent assertion.
+// and binds originRealm from rlm.PkgPath() under an IsCurrent assertion.
 // The registry key is the canonical fqname rlmPath.symbol (one token per
-// realm+symbol), independent of Token.ID()'s trailing sequence id, so
+// realm+symbol), independent of Token.ID(), so
 // callers can look a token up from the (realm, symbol) pair they already
 // know:
 //
-//	Token, ledger := grc20.NewToken(name, symbol, decimals, id, cur)
+//	Token, ledger := grc20.NewToken(name, symbol, decimals, cur)
 //	key := grc20reg.Register(cross(cur), Token, "")
 
-// Register records token under its rlmPath.symbol key and returns that key.
-// Token.ID() carries a trailing sequence id (rlmPath.symbol.<id>) that keeps
-// token identities/events unique, but the registry deliberately keys by
-// rlmPath.symbol so lookups don't need to know the id, and so a realm cannot
-// register two tokens under the same symbol (overwrite/alias guard).
+// Register records token under its originRealm.symbol key and returns that key.
 func Register(cur realm, token *grc20.Token, slug string) string {
 	if token == nil {
 		panic("grc20reg: nil token")
 	}
+	if !cur.IsCurrent() {
+		panic("grc20reg: invalid realm")
+	}
 	if slug != "" {
 		validateSlug(slug)
 	}
-	rlmPath := cur.Previous().PkgPath()
-	key := fqname.Construct(rlmPath, token.GetSymbol())
-	// Token.ID() == key + "." + <id>; verify the token originates from the
-	// registering realm and symbol.
-	if !strings.HasPrefix(token.ID(), key+".") {
-		panic("grc20reg: token must be registered from its own realm")
+	originRealm := token.OriginRealm()
+	if cur.Previous().PkgPath() != originRealm {
+		panic("grc20reg: token must be registered from its origin realm")
 	}
+	key := fqname.Construct(originRealm, token.GetSymbol())
 	if registry.Has(key) {
 		panic("grc20reg: token already registered")
 	}
@@ -50,7 +46,7 @@ func Register(cur realm, token *grc20.Token, slug string) string {
 	chain.Emit(
 		registerEvent,
 		"token_path", key,
-		"pkgpath", rlmPath,
+		"pkgpath", originRealm,
 		"slug", slug,
 		"symbol", token.GetSymbol(),
 	)

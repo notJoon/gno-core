@@ -10,7 +10,6 @@ import (
 
 	"gno.land/p/demo/tokens/grc20"
 	"gno.land/p/nt/fqname/v0"
-	"gno.land/p/nt/seqid/v0"
 	"gno.land/p/nt/testutils/v0"
 	trs_pkg "gno.land/p/nt/treasury/v0"
 	"gno.land/p/nt/uassert/v0"
@@ -26,7 +25,6 @@ import (
 // These tests pass `func()` callbacks (no crossing inside the callback),
 // so rlm is ignored — a nil realm here is safe.
 var cur realm
-var nextTokenID seqid.ID
 var (
 	user1Addr       = testutils.TestAddress("g1user1")
 	user2Addr       = testutils.TestAddress("g1user2")
@@ -80,13 +78,12 @@ func registerGRC20Tokens(_ int, rlm realm, t *testing.T, tokenNames []string, to
 
 	var (
 		keyedTokens = make([]keyedToken, 0, len(tokenNames))
-		keys        = make([]string, 0, len(tokenNames))
 	)
 
 	for _, name := range tokenNames {
 		// Create the token.
 		symbol := strings.ToUpper(name)
-		token, ledger := grc20.NewToken(name, symbol, 0, nextTokenID.Next(), rlm)
+		token, ledger := grc20.NewToken(name, symbol, 0, rlm)
 
 		// Register the token.
 		grc20reg.Register(cross(rlm), token, symbol)
@@ -97,11 +94,7 @@ func registerGRC20Tokens(_ int, rlm realm, t *testing.T, tokenNames []string, to
 		// Add the token and key to the lists.
 		key := fqname.Construct(unsafe.CurrentRealm().PkgPath(), symbol)
 		keyedTokens = append(keyedTokens, keyedToken{key: key, token: token})
-		keys = append(keys, key)
 	}
-
-	// Set the token keys in the treasury.
-	treasury.SetTokenKeys(cross(rlm), keys)
 
 	return keyedTokens
 }
@@ -172,8 +165,22 @@ func TestRegisteredBankers(t *testing.T) {
 }
 
 func TestSendGRC20Payment(cur realm, t *testing.T) {
+	// Create 3 GRC20 tokens in this test realm and register them.
+	keyedTokens := registerGRC20Tokens(
+		0, cur,
+		t,
+		[]string{"TestToken0", "TestToken1", "TestToken2"},
+		treasuryAddr,
+	)
+
 	// Set the current Realm to the allowed one.
 	testing.SetRealm(allowedRealm)
+
+	keys := make([]string, 0, len(keyedTokens))
+	for _, keyed := range keyedTokens {
+		keys = append(keys, keyed.key)
+	}
+	treasury.SetTokenKeys(cross(cur), keys)
 
 	// Try to send a GRC20 payment with a not registered token, it should abort.
 	uassert.AbortsWithMessage(
@@ -182,14 +189,6 @@ func TestSendGRC20Payment(cur realm, t *testing.T) {
 		func() {
 			treasury.Send(cross(cur), trs_pkg.NewGRC20Payment("UNKNOW", 100, user1Addr))
 		},
-	)
-
-	// Create 3 GRC20 tokens and register them.
-	keyedTokens := registerGRC20Tokens(
-		0, cur,
-		t,
-		[]string{"TestToken0", "TestToken1", "TestToken2"},
-		treasuryAddr,
 	)
 
 	const txAmount = 42

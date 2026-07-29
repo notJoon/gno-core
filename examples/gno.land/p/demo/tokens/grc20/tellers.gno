@@ -9,9 +9,7 @@ import (
 // caller. rlm must be the caller's own captured cur (asserted via
 // rlm.IsCurrent() inside the Teller methods).
 func (tok *Token) CallerTeller() Teller {
-	if tok == nil {
-		panic("Token cannot be nil")
-	}
+	canonicalLedger(tok, nil)
 
 	return &fnTeller{
 		accountFn: func(_ int, rlm realm) address {
@@ -23,9 +21,7 @@ func (tok *Token) CallerTeller() Teller {
 
 // ReadonlyTeller is a GRC20 compatible teller that panics for any write operation.
 func (tok *Token) ReadonlyTeller() Teller {
-	if tok == nil {
-		panic("Token cannot be nil")
-	}
+	canonicalLedger(tok, nil)
 
 	return &fnTeller{
 		accountFn: nil,
@@ -43,9 +39,7 @@ func (tok *Token) ReadonlyTeller() Teller {
 // rlm must be the caller's own captured cur (asserted via rlm.IsCurrent()).
 // The address is frozen eagerly at construction.
 func (tok *Token) RealmTeller(_ int, rlm realm) Teller {
-	if tok == nil {
-		panic("Token cannot be nil")
-	}
+	canonicalLedger(tok, nil)
 	if !rlm.IsCurrent() {
 		panic(ErrSpoofedRealm)
 	}
@@ -66,9 +60,7 @@ func (tok *Token) RealmTeller(_ int, rlm realm) Teller {
 // rlm must be the caller's own captured cur (asserted via rlm.IsCurrent()).
 // The subaccount address is frozen eagerly at construction.
 func (tok *Token) RealmSubTeller(_ int, rlm realm, slug string) Teller {
-	if tok == nil {
-		panic("Token cannot be nil")
-	}
+	canonicalLedger(tok, nil)
 	if !rlm.IsCurrent() {
 		panic(ErrSpoofedRealm)
 	}
@@ -97,9 +89,7 @@ func (tok *Token) RealmSubTeller(_ int, rlm realm, slug string) Teller {
 // This method should be used with caution, as it allows for potentially
 // sensitive operations to be performed under the guise of another address.
 func (ledger *PrivateLedger) ImpersonateTeller(addr address) Teller {
-	if ledger == nil {
-		panic("Ledger cannot be nil")
-	}
+	ledger = canonicalLedger(nil, ledger)
 
 	return &fnTeller{
 		accountFn: func(_ int, _ realm) address {
@@ -113,6 +103,7 @@ func (ledger *PrivateLedger) ImpersonateTeller(addr address) Teller {
 //
 
 func (ft *fnTeller) Transfer(_ int, rlm realm, to address, amount int64) error {
+	ledger := canonicalTellerLedger(ft)
 	if ft.accountFn == nil {
 		return ErrReadonly
 	}
@@ -120,10 +111,11 @@ func (ft *fnTeller) Transfer(_ int, rlm realm, to address, amount int64) error {
 		return ErrSpoofedRealm
 	}
 	caller := ft.accountFn(0, rlm)
-	return ft.Token.ledger.Transfer(caller, to, amount)
+	return ledger.Transfer(caller, to, amount)
 }
 
 func (ft *fnTeller) Approve(_ int, rlm realm, spender address, amount int64) error {
+	ledger := canonicalTellerLedger(ft)
 	if ft.accountFn == nil {
 		return ErrReadonly
 	}
@@ -131,10 +123,11 @@ func (ft *fnTeller) Approve(_ int, rlm realm, spender address, amount int64) err
 		return ErrSpoofedRealm
 	}
 	caller := ft.accountFn(0, rlm)
-	return ft.Token.ledger.Approve(caller, spender, amount)
+	return ledger.Approve(caller, spender, amount)
 }
 
 func (ft *fnTeller) TransferFrom(_ int, rlm realm, owner, to address, amount int64) error {
+	ledger := canonicalTellerLedger(ft)
 	if ft.accountFn == nil {
 		return ErrReadonly
 	}
@@ -142,7 +135,14 @@ func (ft *fnTeller) TransferFrom(_ int, rlm realm, owner, to address, amount int
 		return ErrSpoofedRealm
 	}
 	spender := ft.accountFn(0, rlm)
-	return ft.Token.ledger.TransferFrom(owner, spender, to, amount)
+	return ledger.TransferFrom(owner, spender, to, amount)
+}
+
+func canonicalTellerLedger(ft *fnTeller) *PrivateLedger {
+	if ft == nil {
+		panic(canonicalLedgerPanic)
+	}
+	return canonicalLedger(ft.Token, nil)
 }
 
 // helpers

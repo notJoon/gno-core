@@ -50,6 +50,8 @@ NATIVE_SPECS = [
     # ---- flat ----
     ("chain", "pubKeyAddress", None, "Flat",
      r"BenchmarkNative_Chain_PubKeyAddress-\d+\s+\d+\s+([\d.]+)\s+ns/op"),
+    ("chain", "newRealmInstanceID", None, "Flat",
+     r"BenchmarkNative_Chain_NewRealmInstanceID-\d+\s+\d+\s+([\d.]+)\s+ns/op"),
     ("time", "loadFromEmbeddedTZData", None, "Flat",
      r"BenchmarkNative_Time_LoadTZData-\d+\s+\d+\s+([\d.]+)\s+ns/op"),
     ("math", "Float32bits", None, "Flat",
