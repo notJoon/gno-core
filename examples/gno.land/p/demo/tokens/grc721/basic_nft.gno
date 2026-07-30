@@ -9,23 +9,35 @@ import (
 	"gno.land/p/nt/ufmt/v0"
 )
 
-type BasicNFT struct {
-	name              string
-	symbol            string
-	origRealm         string   // owning realm's package path
-	owners            avl.Tree // tokenId -> OwnerAddress
-	balances          avl.Tree // OwnerAddress -> TokenCount
-	tokenApprovals    avl.Tree // TokenId -> ApprovedAddress
-	tokenURIs         avl.Tree // TokenId -> URIs
-	operatorApprovals avl.Tree // "OwnerAddress:OperatorAddress" -> bool
+type tokenRecord struct {
+	owner    address
+	approved address
+	uri      string
+	burned   bool
 }
 
-func NewBasicNFT(_ int, rlm realm, name, symbol string) *BasicNFT {
+// NFT is the public, read-only view of a collection.
+type NFT struct {
+	name      string
+	symbol    string
+	origRealm string
+	ledger    *PrivateLedger
+}
+
+// PrivateLedger is the collection realm's private write capability.
+type PrivateLedger struct {
+	nft               *NFT
+	tokens            avl.Tree // TokenID -> tokenRecord, including burned IDs
+	balances          avl.Tree // owner -> active token count
+	operatorApprovals avl.Tree // owner:operator -> bool
+	activeTokens      int64
+}
+
+func NewBasicNFT(_ int, rlm realm, name, symbol string) (*NFT, *PrivateLedger) {
 	if !rlm.IsCurrent() {
 		panic(ErrSpoofedRealm)
 	}
-	pkgPath := rlm.PkgPath()
-	if pkgPath == "" {
+	if rlm.PkgPath() == "" {
 		panic(ErrNotRealm)
 	}
 	if !validName(name) {
@@ -35,423 +47,278 @@ func NewBasicNFT(_ int, rlm realm, name, symbol string) *BasicNFT {
 		panic(ErrInvalidSymbol)
 	}
 
-	return &BasicNFT{
+	ledger := &PrivateLedger{}
+	nft := &NFT{
 		name:      name,
 		symbol:    symbol,
-		origRealm: pkgPath,
-
-		owners:            avl.Tree{},
-		balances:          avl.Tree{},
-		tokenApprovals:    avl.Tree{},
-		tokenURIs:         avl.Tree{},
-		operatorApprovals: avl.Tree{},
+		origRealm: rlm.PkgPath(),
+		ledger:    ledger,
 	}
+	ledger.nft = nft
+	return nft, ledger
 }
 
-func (s *BasicNFT) Name() string      { return s.name }
-func (s *BasicNFT) Symbol() string    { return s.symbol }
-func (s *BasicNFT) TokenCount() int64 { return int64(s.owners.Size()) }
+func (n *NFT) ID() string        { return n.origRealm + "." + n.symbol }
+func (n *NFT) Name() string      { return n.name }
+func (n *NFT) Symbol() string    { return n.symbol }
+func (n *NFT) TokenCount() int64 { return n.ledger.activeTokens }
 
-func (s *BasicNFT) ID() string {
-	return s.origRealm + "." + s.symbol
-}
-
-// BalanceOf returns balance of input address
-func (s *BasicNFT) BalanceOf(addr address) (int64, error) {
-	if err := isValidAddress(addr); err != nil {
-		return 0, err
+func (n *NFT) BalanceOf(owner address) (int64, error) {
+	if !validAddress(owner) {
+		return 0, ErrInvalidAddress
 	}
-
-	balance := s.balances.Get(addr.String())
-	if balance == nil {
+	value := n.ledger.balances.Get(owner.String())
+	if value == nil {
 		return 0, nil
 	}
-
-	return balance.(int64), nil
+	return value.(int64), nil
 }
 
-// OwnerOf returns owner of input token id
-func (s *BasicNFT) OwnerOf(tid TokenID) (address, error) {
-	owner := s.owners.Get(string(tid))
-	if owner == nil {
-		return "", ErrInvalidTokenId
-	}
-
-	return owner.(address), nil
-}
-
-// TokenURI returns the URI of input token id
-func (s *BasicNFT) TokenURI(tid TokenID) (string, error) {
-	uri := s.tokenURIs.Get(tid.String())
-	if uri == nil {
-		return "", ErrInvalidTokenId
-	}
-
-	return uri.(string), nil
-}
-
-// SetTokenURI sets the URI of a token. caller must equal the token's
-// owner. The owning realm's public wrapper is responsible for deriving
-// caller from rlm.Previous().Address() under an rlm.IsCurrent() guard
-// before invoking this method; this method trusts the supplied caller.
-func (s *BasicNFT) SetTokenURI(caller address, tid TokenID, tURI TokenURI) (bool, error) {
-	// check for invalid TokenID
-	if !s.exists(tid) {
-		return false, ErrInvalidTokenId
-	}
-
-	// check for the right owner
-	owner, err := s.OwnerOf(tid)
+func (n *NFT) OwnerOf(tid TokenID) (address, error) {
+	token, err := n.ledger.activeToken(tid)
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	if caller != owner {
-		return false, ErrCallerIsNotOwner
-	}
-	s.tokenURIs.Set(tid.String(), tURI.String())
-
-	chain.Emit(
-		TokenURIUpdateEvent,
-		"token", s.ID(),
-		"tokenId", tid.String(),
-	)
-
-	return true, nil
+	return token.owner, nil
 }
 
-// IsApprovedForAll returns true if operator is approved for all by the owner.
-// Otherwise, returns false
-func (s *BasicNFT) IsApprovedForAll(owner, operator address) bool {
-	key := owner.String() + ":" + operator.String()
-	approved := s.operatorApprovals.Get(key)
-	if approved == nil {
+func (n *NFT) GetApproved(tid TokenID) (address, error) {
+	token, err := n.ledger.activeToken(tid)
+	if err != nil {
+		return "", err
+	}
+	return token.approved, nil
+}
+
+func (n *NFT) IsApprovedForAll(owner, operator address) bool {
+	if !validAddress(owner) || !validAddress(operator) {
 		return false
 	}
-
-	return approved.(bool)
+	return n.ledger.operatorApprovals.Has(approvalKey(owner, operator))
 }
 
-// Approve approves the input address for a particular token. caller
-// must be the owner OR an operator approved for all on owner's behalf.
-// The owning realm's wrapper validates IsCurrent and derives caller
-// from rlm.Previous().Address() before calling.
-func (s *BasicNFT) Approve(caller, to address, tid TokenID) error {
-	if err := isValidAddress(to); err != nil {
-		return err
-	}
-
-	owner, err := s.OwnerOf(tid)
+func (n *NFT) TokenURI(tid TokenID) (string, error) {
+	token, err := n.ledger.activeToken(tid)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if owner == to {
-		return ErrApprovalToCurrentOwner
-	}
+	return token.uri, nil
+}
 
-	if caller != owner && !s.IsApprovedForAll(owner, caller) {
-		return ErrCallerIsNotOwnerOrApproved
-	}
-
-	tidStr := tid.String()
-	s.tokenApprovals.Set(tidStr, to)
-
-	chain.Emit(
-		ApprovalEvent,
-		"token", s.ID(),
-		"owner", owner.String(),
-		"to", to.String(),
-		"tokenId", tidStr,
+func (n *NFT) RenderHome() string {
+	return ufmt.Sprintf(
+		"# %s ($%s)\n\n* **Total supply**: %d\n* **Known accounts**: %d\n",
+		n.name,
+		n.symbol,
+		n.TokenCount(),
+		n.ledger.balances.Size(),
 	)
-
-	return nil
 }
 
-// GetApproved return the approved address for token
-func (s *BasicNFT) GetApproved(tid TokenID) (address, error) {
-	addr := s.tokenApprovals.Get(tid.String())
-	if addr == nil {
-		return zeroAddress, ErrTokenIdNotHasApproved
+func (l *PrivateLedger) Mint(to address, tid TokenID) error {
+	if !validTokenID(tid) {
+		return ErrInvalidTokenID
 	}
-
-	return addr.(address), nil
-}
-
-// SetApprovalForAll grants/revokes operator permission across all of
-// the caller's tokens. caller is the owner whose approvals are mutated;
-// the owning realm's wrapper derives it from rlm.Previous().Address()
-// under an IsCurrent() guard.
-func (s *BasicNFT) SetApprovalForAll(caller, operator address, approved bool) error {
-	if err := isValidAddress(operator); err != nil {
+	if !validAddress(to) {
 		return ErrInvalidAddress
 	}
-	return s.setApprovalForAll(caller, operator, approved)
-}
-
-// SafeTransferFrom transfers a token from `from` to `to`, checking that
-// contract recipients are aware of the GRC721 protocol to prevent
-// tokens from being forever locked. caller must be the owner or an
-// approved operator. The owning realm's wrapper derives caller from
-// rlm.Previous().Address() under an IsCurrent() guard.
-func (s *BasicNFT) SafeTransferFrom(caller, from, to address, tid TokenID) error {
-	if !s.isApprovedOrOwner(caller, tid) {
-		return ErrCallerIsNotOwnerOrApproved
+	if l.tokens.Has(tid.String()) {
+		return ErrTokenIDAlreadyUsed
 	}
 
-	err := s.transfer(from, to, tid)
-	if err != nil {
-		return err
-	}
+	balance := overflow.Add64p(l.balanceOf(to), 1)
+	tokenCount := overflow.Add64p(l.activeTokens, 1)
+	toString := to.String()
+	tidString := tid.String()
 
-	if !s.checkOnGRC721Received(from, to, tid) {
-		return ErrTransferToNonGRC721Receiver
-	}
+	l.tokens.Set(tidString, tokenRecord{owner: to})
+	l.balances.Set(toString, balance)
+	l.activeTokens = tokenCount
 
+	chain.Emit(
+		MintEvent,
+		"token", l.nft.ID(),
+		"to", toString,
+		"tokenId", tidString,
+	)
 	return nil
 }
 
-// TransferFrom transfers a token from `from` to `to`. Same caller
-// contract as SafeTransferFrom.
-func (s *BasicNFT) TransferFrom(caller, from, to address, tid TokenID) error {
-	if !s.isApprovedOrOwner(caller, tid) {
-		return ErrCallerIsNotOwnerOrApproved
-	}
-
-	err := s.transfer(from, to, tid)
+func (l *PrivateLedger) Burn(tid TokenID) error {
+	token, err := l.activeToken(tid)
 	if err != nil {
 		return err
 	}
 
-	return nil
-}
+	balance := overflow.Sub64p(l.balanceOf(token.owner), 1)
+	tokenCount := overflow.Sub64p(l.activeTokens, 1)
+	ownerString := token.owner.String()
+	tidString := tid.String()
 
-// Mints `tokenId` and transfers it to `to`.
-func (s *BasicNFT) Mint(to address, tid TokenID) error {
-	return s.mint(to, tid)
-}
-
-// Mints `tokenId` and transfers it to `to`. Also checks that
-// contract recipients are using GRC721 protocol
-func (s *BasicNFT) SafeMint(to address, tid TokenID) error {
-	err := s.mint(to, tid)
-	if err != nil {
-		return err
+	token.owner = ""
+	token.approved = ""
+	token.uri = ""
+	token.burned = true
+	l.tokens.Set(tidString, token)
+	if balance == 0 {
+		l.balances.Remove(ownerString)
+	} else {
+		l.balances.Set(ownerString, balance)
 	}
-
-	if !s.checkOnGRC721Received(zeroAddress, to, tid) {
-		return ErrTransferToNonGRC721Receiver
-	}
-
-	return nil
-}
-
-func (s *BasicNFT) Burn(tid TokenID) error {
-	owner, err := s.OwnerOf(tid)
-	if err != nil {
-		return err
-	}
-
-	s.beforeTokenTransfer(owner, zeroAddress, tid, 1)
-
-	tidStr := tid.String()
-	s.tokenApprovals.Remove(tidStr)
-	balance, err := s.BalanceOf(owner)
-	if err != nil {
-		return err
-	}
-	balance = overflow.Sub64p(balance, 1)
-
-	ownerStr := owner.String()
-	s.balances.Set(ownerStr, balance)
-	s.owners.Remove(tidStr)
+	l.activeTokens = tokenCount
 
 	chain.Emit(
 		BurnEvent,
-		"token", s.ID(),
-		"from", ownerStr,
-		"tokenId", tidStr,
+		"token", l.nft.ID(),
+		"from", ownerString,
+		"tokenId", tidString,
 	)
-
-	s.afterTokenTransfer(owner, zeroAddress, tid, 1)
-
 	return nil
 }
 
-/* Helper methods */
-
-// Helper for SetApprovalForAll()
-func (s *BasicNFT) setApprovalForAll(owner, operator address, approved bool) error {
-	if owner == operator {
+func (l *PrivateLedger) Approve(caller, to address, tid TokenID) error {
+	token, err := l.activeToken(tid)
+	if err != nil {
+		return err
+	}
+	if to != "" && !validAddress(to) {
+		return ErrInvalidAddress
+	}
+	if caller != token.owner && !l.nft.IsApprovedForAll(token.owner, caller) {
+		return ErrCallerIsNotOwnerOrApproved
+	}
+	if to == token.owner {
 		return ErrApprovalToCurrentOwner
 	}
 
-	key := owner.String() + ":" + operator.String()
-	s.operatorApprovals.Set(key, approved)
-
+	token.approved = to
+	l.tokens.Set(tid.String(), token)
 	chain.Emit(
-		ApprovalForAllEvent,
-		"token", s.ID(),
-		"owner", owner.String(),
-		"to", operator.String(),
-		"approved", strconv.FormatBool(approved),
+		ApprovalEvent,
+		"token", l.nft.ID(),
+		"owner", token.owner.String(),
+		"to", to.String(),
+		"tokenId", tid.String(),
 	)
-
 	return nil
 }
 
-// Helper for TransferFrom() and SafeTransferFrom()
-func (s *BasicNFT) transfer(from, to address, tid TokenID) error {
-	if err := isValidAddress(from); err != nil {
+func (l *PrivateLedger) SetApprovalForAll(caller, operator address, approved bool) error {
+	if !validAddress(caller) || !validAddress(operator) {
 		return ErrInvalidAddress
 	}
-	if err := isValidAddress(to); err != nil {
-		return ErrInvalidAddress
+	if caller == operator {
+		return ErrSelfApproval
 	}
 
+	key := approvalKey(caller, operator)
+	if approved {
+		l.operatorApprovals.Set(key, true)
+	} else {
+		l.operatorApprovals.Remove(key)
+	}
+
+	chain.Emit(
+		ApprovalForAllEvent,
+		"token", l.nft.ID(),
+		"owner", caller.String(),
+		"to", operator.String(),
+		"approved", strconv.FormatBool(approved),
+	)
+	return nil
+}
+
+func (l *PrivateLedger) TransferFrom(caller, from, to address, tid TokenID) error {
+	if !validTokenID(tid) {
+		return ErrInvalidTokenID
+	}
+	if !validAddress(caller) || !validAddress(from) || !validAddress(to) {
+		return ErrInvalidAddress
+	}
 	if from == to {
 		return ErrCannotTransferToSelf
 	}
 
-	owner, err := s.OwnerOf(tid)
+	token, err := l.activeToken(tid)
 	if err != nil {
 		return err
 	}
-	if owner != from {
+	if token.owner != from {
 		return ErrTransferFromIncorrectOwner
 	}
-
-	s.beforeTokenTransfer(from, to, tid, 1)
-
-	// Check that tokenId was not transferred by `beforeTokenTransfer`
-	owner, err = s.OwnerOf(tid)
-	if err != nil {
-		return err
-	}
-	if owner != from {
-		return ErrTransferFromIncorrectOwner
+	if caller != token.owner &&
+		caller != token.approved &&
+		!l.nft.IsApprovedForAll(token.owner, caller) {
+		return ErrCallerIsNotOwnerOrApproved
 	}
 
-	tidStr := tid.String()
-	s.tokenApprovals.Remove(tidStr)
-	fromBalance, err := s.BalanceOf(from)
-	if err != nil {
-		return err
-	}
-	toBalance, err := s.BalanceOf(to)
-	if err != nil {
-		return err
-	}
-	fromBalance = overflow.Sub64p(fromBalance, 1)
-	toBalance = overflow.Add64p(toBalance, 1)
+	fromBalance := overflow.Sub64p(l.balanceOf(from), 1)
+	toBalance := overflow.Add64p(l.balanceOf(to), 1)
+	fromString := from.String()
+	toString := to.String()
 
-	fromStr := from.String()
-	toStr := to.String()
-
-	s.balances.Set(fromStr, fromBalance)
-	s.balances.Set(toStr, toBalance)
-	s.owners.Set(tidStr, to)
+	token.owner = to
+	token.approved = ""
+	l.tokens.Set(tid.String(), token)
+	if fromBalance == 0 {
+		l.balances.Remove(fromString)
+	} else {
+		l.balances.Set(fromString, fromBalance)
+	}
+	l.balances.Set(toString, toBalance)
 
 	chain.Emit(
 		TransferEvent,
-		"token", s.ID(),
-		"from", fromStr,
-		"to", toStr,
-		"tokenId", tidStr,
+		"token", l.nft.ID(),
+		"from", fromString,
+		"to", toString,
+		"tokenId", tid.String(),
 	)
-
-	s.afterTokenTransfer(from, to, tid, 1)
-
 	return nil
 }
 
-// Helper for Mint() and SafeMint()
-func (s *BasicNFT) mint(to address, tid TokenID) error {
-	if err := isValidAddress(to); err != nil {
-		return err
-	}
-
-	if s.exists(tid) {
-		return ErrTokenIdAlreadyExists
-	}
-
-	s.beforeTokenTransfer(zeroAddress, to, tid, 1)
-
-	// Check that tokenId was not minted by `beforeTokenTransfer`
-	if s.exists(tid) {
-		return ErrTokenIdAlreadyExists
-	}
-
-	toBalance, err := s.BalanceOf(to)
+func (l *PrivateLedger) SetTokenURI(caller address, tid TokenID, uri TokenURI) error {
+	token, err := l.activeToken(tid)
 	if err != nil {
 		return err
 	}
-	toBalance = overflow.Add64p(toBalance, 1)
-	toStr := to.String()
-	tidStr := tid.String()
-	s.balances.Set(toStr, toBalance)
-	s.owners.Set(tidStr, to)
+	if caller != token.owner {
+		return ErrCallerIsNotOwner
+	}
 
+	token.uri = uri.String()
+	l.tokens.Set(tid.String(), token)
 	chain.Emit(
-		MintEvent,
-		"token", s.ID(),
-		"to", toStr,
-		"tokenId", tidStr,
+		TokenURIUpdateEvent,
+		"token", l.nft.ID(),
+		"tokenId", tid.String(),
 	)
-
-	s.afterTokenTransfer(zeroAddress, to, tid, 1)
-
 	return nil
 }
 
-func (s *BasicNFT) isApprovedOrOwner(addr address, tid TokenID) bool {
-	owner := s.owners.Get(tid.String())
-	if owner == nil {
-		return false
+func (l *PrivateLedger) activeToken(tid TokenID) (tokenRecord, error) {
+	if !validTokenID(tid) {
+		return tokenRecord{}, ErrInvalidTokenID
 	}
-
-	ownerAddr := owner.(address)
-	if addr == ownerAddr || s.IsApprovedForAll(ownerAddr, addr) {
-		return true
+	value := l.tokens.Get(tid.String())
+	if value == nil {
+		return tokenRecord{}, ErrTokenNotFound
 	}
-
-	approved, err := s.GetApproved(tid)
-	if err != nil {
-		return false
+	token := value.(tokenRecord)
+	if token.burned {
+		return tokenRecord{}, ErrTokenNotFound
 	}
-
-	return approved == addr
+	return token, nil
 }
 
-// Checks if token id already exists
-func (s *BasicNFT) exists(tid TokenID) bool {
-	return s.owners.Has(tid.String())
-}
-
-func (s *BasicNFT) beforeTokenTransfer(from, to address, firstTokenId TokenID, batchSize int64) {
-	// TODO: Implementation
-}
-
-func (s *BasicNFT) afterTokenTransfer(from, to address, firstTokenId TokenID, batchSize int64) {
-	// TODO: Implementation
-}
-
-func (s *BasicNFT) checkOnGRC721Received(from, to address, tid TokenID) bool {
-	// TODO: Implementation
-	return true
-}
-
-func (s *BasicNFT) RenderHome() (str string) {
-	str += ufmt.Sprintf("# %s ($%s)\n\n", s.name, s.symbol)
-	str += ufmt.Sprintf("* **Total supply**: %d\n", s.TokenCount())
-	str += ufmt.Sprintf("* **Known accounts**: %d\n", s.balances.Size())
-
-	return
-}
-
-// Getter returns an NFTGetter that yields a reader-only view of the NFT.
-// Safe to register with cross-realm aggregators like tokenhub — readers
-// only, no rlm-typed methods, so no cur can be captured via this surface.
-func (n *BasicNFT) Getter() NFTGetter {
-	return func() IGRC721Reader {
-		return n
+func (l *PrivateLedger) balanceOf(owner address) int64 {
+	value := l.balances.Get(owner.String())
+	if value == nil {
+		return 0
 	}
+	return value.(int64)
+}
+
+func approvalKey(owner, operator address) string {
+	return owner.String() + ":" + operator.String()
 }

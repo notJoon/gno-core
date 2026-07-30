@@ -1,17 +1,13 @@
 package grc721
 
 const (
-	MaxNameLen   = 64
-	MaxSymbolLen = 11
+	MaxNameLen    = 64
+	MaxSymbolLen  = 11
+	MaxTokenIDLen = 128
 )
 
-var zeroAddress = address("")
-
-func isValidAddress(addr address) error {
-	if !addr.IsValid() {
-		return ErrInvalidAddress
-	}
-	return nil
+func validAddress(addr address) bool {
+	return addr.IsValid()
 }
 
 func validName(name string) bool {
@@ -26,8 +22,6 @@ func validName(name string) bool {
 	return true
 }
 
-// symbol is emitted as part of the event identifier, so bounding it
-// keeps events under MaxEventAttrLen.
 func validSymbol(symbol string) bool {
 	if symbol == "" || len(symbol) > MaxSymbolLen {
 		return false
@@ -40,10 +34,19 @@ func validSymbol(symbol string) bool {
 	return true
 }
 
-func isAlnum(c rune) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+func validTokenID(tid TokenID) bool {
+	value := tid.String()
+	if value == "" || len(value) > MaxTokenIDLen {
+		return false
+	}
+	for _, c := range value {
+		if !isAlnum(c) && c != '_' && c != '-' {
+			return false
+		}
+	}
+	return true
 }
 
-func emit(event any) {
-	// TODO: setup a pubsub system here?
+func isAlnum(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
