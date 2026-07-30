@@ -9,11 +9,11 @@ import (
 	"gno.land/p/nt/ufmt/v0"
 )
 
+// tokenRecord stores per-token state
 type tokenRecord struct {
-	owner    address
+	owner    address // an empty owner marks a burned token.
 	approved address
 	uri      string
-	burned   bool
 }
 
 // NFT is the public, read-only view of a collection.
@@ -155,11 +155,7 @@ func (l *PrivateLedger) Burn(tid TokenID) error {
 	ownerString := token.owner.String()
 	tidString := tid.String()
 
-	token.owner = ""
-	token.approved = ""
-	token.uri = ""
-	token.burned = true
-	l.tokens.Set(tidString, token)
+	l.tokens.Set(tidString, tokenRecord{})
 	if balance == 0 {
 		l.balances.Remove(ownerString)
 	} else {
@@ -302,7 +298,7 @@ func (l *PrivateLedger) activeToken(tid TokenID) (tokenRecord, error) {
 		return tokenRecord{}, ErrTokenNotFound
 	}
 	token := value.(tokenRecord)
-	if token.burned {
+	if token.owner == "" {
 		return tokenRecord{}, ErrTokenNotFound
 	}
 	return token, nil
