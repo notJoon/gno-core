@@ -49,9 +49,8 @@ func (n *RoyaltyNFT) RoyaltyInfo(tid TokenID, salePrice int64) (address, int64, 
 	return royalty.PaymentAddress, amount, nil
 }
 
-func (l *RoyaltyLedger) SetTokenRoyalty(caller address, tid TokenID, royalty RoyaltyInfo) error {
-	token, err := l.activeToken(tid)
-	if err != nil {
+func (l *RoyaltyLedger) SetTokenRoyalty(tid TokenID, royalty RoyaltyInfo) error {
+	if _, err := l.activeToken(tid); err != nil {
 		return err
 	}
 	if royalty.BPS < 0 || royalty.BPS > royaltyBPSDenominator {
@@ -60,10 +59,6 @@ func (l *RoyaltyLedger) SetTokenRoyalty(caller address, tid TokenID, royalty Roy
 	if royalty.BPS > 0 && !validAddress(royalty.PaymentAddress) {
 		return ErrInvalidRoyaltyPaymentAddress
 	}
-	if caller != token.owner {
-		return ErrCallerIsNotOwner
-	}
-
 	if royalty.BPS == 0 {
 		l.nft.royalties.Remove(tid.String())
 	} else {

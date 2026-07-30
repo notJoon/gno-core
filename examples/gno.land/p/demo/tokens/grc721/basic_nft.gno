@@ -277,13 +277,10 @@ func (l *PrivateLedger) TransferFrom(caller, from, to address, tid TokenID) erro
 	return nil
 }
 
-func (l *PrivateLedger) SetTokenURI(caller address, tid TokenID, uri TokenURI) error {
+func (l *PrivateLedger) SetTokenURI(tid TokenID, uri TokenURI) error {
 	token, err := l.activeToken(tid)
 	if err != nil {
 		return err
-	}
-	if caller != token.owner {
-		return ErrCallerIsNotOwner
 	}
 
 	token.uri = uri.String()

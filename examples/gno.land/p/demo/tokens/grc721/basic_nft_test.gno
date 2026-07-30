@@ -62,6 +62,7 @@ func TestMintBurnLifecycle(cur realm, t *testing.T) {
 	owner := testutils.TestAddress("owner")
 
 	uassert.NoError(t, ledger.Mint(owner, "1"))
+	uassert.ErrorIs(t, ledger.Mint(owner, "1"), ErrTokenIDAlreadyUsed)
 	uassert.Equal(t, int64(1), nft.TokenCount())
 	balance, err := nft.BalanceOf(owner)
 	uassert.NoError(t, err)
@@ -128,9 +129,15 @@ func TestFailedTransferKeepsState(cur realm, t *testing.T) {
 	receiver := testutils.TestAddress("receiver")
 
 	uassert.NoError(t, ledger.Mint(owner, "1"))
+	uassert.NoError(t, ledger.Approve(owner, other, "1"))
 	uassert.ErrorIs(
 		t,
-		ledger.TransferFrom(other, owner, receiver, "1"),
+		ledger.TransferFrom(owner, other, receiver, "1"),
+		ErrTransferFromIncorrectOwner,
+	)
+	uassert.ErrorIs(
+		t,
+		ledger.TransferFrom(receiver, owner, receiver, "1"),
 		ErrCallerIsNotOwnerOrApproved,
 	)
 
@@ -138,6 +145,18 @@ func TestFailedTransferKeepsState(cur realm, t *testing.T) {
 	uassert.NoError(t, err)
 	uassert.Equal(t, owner, actualOwner)
 	uassert.Equal(t, int64(1), nft.TokenCount())
+	ownerBalance, err := nft.BalanceOf(owner)
+	uassert.NoError(t, err)
+	uassert.Equal(t, int64(1), ownerBalance)
+	receiverBalance, err := nft.BalanceOf(receiver)
+	uassert.NoError(t, err)
+	uassert.Equal(t, int64(0), receiverBalance)
+	approved, err := nft.GetApproved("1")
+	uassert.NoError(t, err)
+	uassert.Equal(t, other, approved)
+
+	uassert.ErrorIs(t, ledger.Mint("", "unused"), ErrInvalidAddress)
+	uassert.NoError(t, ledger.Mint(owner, "unused"))
 }
 
 func TestTokenURI(cur realm, t *testing.T) {
@@ -149,7 +168,7 @@ func TestTokenURI(cur realm, t *testing.T) {
 	uassert.NoError(t, err)
 	uassert.Equal(t, "", uri)
 
-	uassert.NoError(t, ledger.SetTokenURI(owner, "1", "ipfs://one"))
+	uassert.NoError(t, ledger.SetTokenURI("1", "ipfs://one"))
 	uri, err = nft.TokenURI("1")
 	uassert.NoError(t, err)
 	uassert.Equal(t, "ipfs://one", uri)

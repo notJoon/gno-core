@@ -28,15 +28,15 @@ func TestRoyaltyLifecycleAndCalculation(cur realm, t *testing.T) {
 	uassert.Equal(t, address(""), receiver)
 	uassert.Equal(t, int64(0), amount)
 
-	uassert.ErrorIs(t, ledger.SetTokenRoyalty(owner, "1", RoyaltyInfo{BPS: -1}), ErrInvalidRoyaltyBPS)
-	uassert.ErrorIs(t, ledger.SetTokenRoyalty(owner, "1", RoyaltyInfo{BPS: 10001}), ErrInvalidRoyaltyBPS)
+	uassert.ErrorIs(t, ledger.SetTokenRoyalty("1", RoyaltyInfo{BPS: -1}), ErrInvalidRoyaltyBPS)
+	uassert.ErrorIs(t, ledger.SetTokenRoyalty("1", RoyaltyInfo{BPS: 10001}), ErrInvalidRoyaltyBPS)
 	uassert.ErrorIs(
 		t,
-		ledger.SetTokenRoyalty(owner, "1", RoyaltyInfo{BPS: 1}),
+		ledger.SetTokenRoyalty("1", RoyaltyInfo{BPS: 1}),
 		ErrInvalidRoyaltyPaymentAddress,
 	)
 
-	uassert.NoError(t, ledger.SetTokenRoyalty(owner, "1", RoyaltyInfo{
+	uassert.NoError(t, ledger.SetTokenRoyalty("1", RoyaltyInfo{
 		PaymentAddress: payee,
 		BPS:            1,
 	}))
@@ -45,7 +45,7 @@ func TestRoyaltyLifecycleAndCalculation(cur realm, t *testing.T) {
 	uassert.Equal(t, payee, receiver)
 	uassert.Equal(t, int64(922337203685477), amount)
 
-	uassert.NoError(t, ledger.SetTokenRoyalty(owner, "1", RoyaltyInfo{
+	uassert.NoError(t, ledger.SetTokenRoyalty("1", RoyaltyInfo{
 		PaymentAddress: payee,
 		BPS:            10000,
 	}))
@@ -55,7 +55,7 @@ func TestRoyaltyLifecycleAndCalculation(cur realm, t *testing.T) {
 	_, _, err = nft.RoyaltyInfo("1", -1)
 	uassert.ErrorIs(t, err, ErrInvalidSalePrice)
 
-	uassert.NoError(t, ledger.SetTokenRoyalty(owner, "1", RoyaltyInfo{}))
+	uassert.NoError(t, ledger.SetTokenRoyalty("1", RoyaltyInfo{}))
 	receiver, amount, err = nft.RoyaltyInfo("1", 1000)
 	uassert.NoError(t, err)
 	uassert.Equal(t, address(""), receiver)

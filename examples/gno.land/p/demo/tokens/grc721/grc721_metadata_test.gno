@@ -28,7 +28,7 @@ func TestMetadataLifecycleAndCopies(cur realm, t *testing.T) {
 		Name:       "one",
 		Attributes: []Trait{{TraitType: "rank", Value: "first"}},
 	}
-	uassert.NoError(t, ledger.SetTokenMetadata(owner, "1", input))
+	uassert.NoError(t, ledger.SetTokenMetadata("1", input))
 	input.Attributes[0].Value = "changed input"
 
 	first, err := nft.TokenMetadata("1")

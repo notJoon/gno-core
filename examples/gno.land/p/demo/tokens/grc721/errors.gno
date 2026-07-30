@@ -12,7 +12,6 @@ var (
 	ErrCallerIsNotOwnerOrApproved = errors.New("caller is not token owner or approved")
 	ErrApprovalToCurrentOwner     = errors.New("approval to current owner")
 	ErrSelfApproval               = errors.New("cannot approve self as operator")
-	ErrCallerIsNotOwner           = errors.New("caller is not token owner")
 
 	ErrSpoofedRealm  = errors.New("rlm does not match the current crossing frame")
 	ErrNotRealm      = errors.New("rlm must be a realm (got EOA/origin)")

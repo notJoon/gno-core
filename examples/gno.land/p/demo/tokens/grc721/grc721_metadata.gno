@@ -43,13 +43,9 @@ func (n *MetadataNFT) TokenMetadata(tid TokenID) (Metadata, error) {
 	return cloneMetadata(value.(Metadata)), nil
 }
 
-func (l *MetadataLedger) SetTokenMetadata(caller address, tid TokenID, metadata Metadata) error {
-	token, err := l.activeToken(tid)
-	if err != nil {
+func (l *MetadataLedger) SetTokenMetadata(tid TokenID, metadata Metadata) error {
+	if _, err := l.activeToken(tid); err != nil {
 		return err
-	}
-	if caller != token.owner {
-		return ErrCallerIsNotOwner
 	}
 
 	l.nft.metadata.Set(tid.String(), cloneMetadata(metadata))

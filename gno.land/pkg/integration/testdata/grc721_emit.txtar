@@ -89,7 +89,8 @@ func TransferFrom(cur realm, from, to address, tid grc721.TokenID) {
 func SetTokenURI(cur realm, tid grc721.TokenID, uri string) {
 	assertCurrent(cur)
 	caller := cur.Previous().Address()
-	if err := foo.SetTokenURI(caller, tid, grc721.TokenURI(uri)); err != nil {
+	assertIsAdmin(caller)
+	if err := foo.SetTokenURI(tid, grc721.TokenURI(uri)); err != nil {
 		panic(err)
 	}
 }
@@ -97,7 +98,8 @@ func SetTokenURI(cur realm, tid grc721.TokenID, uri string) {
 func SetMetadata(cur realm, tid grc721.TokenID) {
 	assertCurrent(cur)
 	caller := cur.Previous().Address()
-	if err := foo.SetTokenMetadata(caller, tid, grc721.Metadata{}); err != nil {
+	assertIsAdmin(caller)
+	if err := foo.SetTokenMetadata(tid, grc721.Metadata{}); err != nil {
 		panic(err)
 	}
 }
