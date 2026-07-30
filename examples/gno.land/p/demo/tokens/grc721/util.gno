@@ -23,20 +23,15 @@ func validName(name string) bool {
 }
 
 func validSymbol(symbol string) bool {
-	if symbol == "" || len(symbol) > MaxSymbolLen {
-		return false
-	}
-	for _, c := range symbol {
-		if !isAlnum(c) && c != '_' && c != '-' {
-			return false
-		}
-	}
-	return true
+	return validIdentifier(symbol, MaxSymbolLen)
 }
 
 func validTokenID(tid TokenID) bool {
-	value := tid.String()
-	if value == "" || len(value) > MaxTokenIDLen {
+	return validIdentifier(tid.String(), MaxTokenIDLen)
+}
+
+func validIdentifier(value string, maxLen int) bool {
+	if value == "" || len(value) > maxLen {
 		return false
 	}
 	for _, c := range value {
