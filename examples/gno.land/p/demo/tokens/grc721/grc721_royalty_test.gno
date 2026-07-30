@@ -1,71 +1,67 @@
 package grc721
 
 import (
+	"math"
 	"testing"
 
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/p/nt/uassert/v0"
 )
 
-func newDummyRoyaltyNFT(_ int, rlm realm) *royaltyNFT {
-	var nft *royaltyNFT
+func newTestRoyaltyNFT(cur realm) (*RoyaltyNFT, *RoyaltyLedger) {
+	var nft *RoyaltyNFT
+	var ledger *RoyaltyLedger
 	func(cur realm) {
-		nft = NewNFTWithRoyalty(0, cur, dummyNFTName, dummyNFTSymbol)
-	}(cross(rlm))
-	return nft
+		nft, ledger = NewNFTWithRoyalty(0, cur, dummyNFTName, dummyNFTSymbol)
+	}(cross(cur))
+	return nft, ledger
 }
 
-func TestSetTokenRoyalty(cur realm, t *testing.T) {
-	dummy := newDummyRoyaltyNFT(0, cur)
-	uassert.True(t, dummy != nil, "should not be nil")
+func TestRoyaltyLifecycleAndCalculation(cur realm, t *testing.T) {
+	nft, ledger := newTestRoyaltyNFT(cur)
+	owner := testutils.TestAddress("owner")
+	payee := testutils.TestAddress("payee")
 
-	addr1 := testutils.TestAddress("alice")
-	addr2 := testutils.TestAddress("bob")
+	uassert.NoError(t, ledger.Mint(owner, "1"))
+	receiver, amount, err := nft.RoyaltyInfo("1", 1000)
+	uassert.NoError(t, err)
+	uassert.Equal(t, address(""), receiver)
+	uassert.Equal(t, int64(0), amount)
 
-	paymentAddress := testutils.TestAddress("john")
-	percentage := int64(10) // 10%
+	uassert.ErrorIs(t, ledger.SetTokenRoyalty(owner, "1", RoyaltyInfo{BPS: -1}), ErrInvalidRoyaltyBPS)
+	uassert.ErrorIs(t, ledger.SetTokenRoyalty(owner, "1", RoyaltyInfo{BPS: 10001}), ErrInvalidRoyaltyBPS)
+	uassert.ErrorIs(
+		t,
+		ledger.SetTokenRoyalty(owner, "1", RoyaltyInfo{BPS: 1}),
+		ErrInvalidRoyaltyPaymentAddress,
+	)
 
-	salePrice := int64(1000)
-	expectRoyaltyAmount := int64(100)
+	uassert.NoError(t, ledger.SetTokenRoyalty(owner, "1", RoyaltyInfo{
+		PaymentAddress: payee,
+		BPS:            1,
+	}))
+	receiver, amount, err = nft.RoyaltyInfo("1", math.MaxInt64)
+	uassert.NoError(t, err)
+	uassert.Equal(t, payee, receiver)
+	uassert.Equal(t, int64(922337203685477), amount)
 
-	dummy.mint(addr1, TokenID("1"))
+	uassert.NoError(t, ledger.SetTokenRoyalty(owner, "1", RoyaltyInfo{
+		PaymentAddress: payee,
+		BPS:            10000,
+	}))
+	_, amount, err = nft.RoyaltyInfo("1", math.MaxInt64)
+	uassert.NoError(t, err)
+	uassert.Equal(t, int64(math.MaxInt64), amount)
+	_, _, err = nft.RoyaltyInfo("1", -1)
+	uassert.ErrorIs(t, err, ErrInvalidSalePrice)
 
-	derr := dummy.SetTokenRoyalty(addr1, TokenID("1"), RoyaltyInfo{
-		PaymentAddress: paymentAddress,
-		Percentage:     percentage,
-	})
-	uassert.NoError(t, derr, "Should not result in error")
+	uassert.NoError(t, ledger.SetTokenRoyalty(owner, "1", RoyaltyInfo{}))
+	receiver, amount, err = nft.RoyaltyInfo("1", 1000)
+	uassert.NoError(t, err)
+	uassert.Equal(t, address(""), receiver)
+	uassert.Equal(t, int64(0), amount)
 
-	// Test case: Invalid token ID
-	err := dummy.SetTokenRoyalty(addr1, TokenID("3"), RoyaltyInfo{
-		PaymentAddress: paymentAddress,
-		Percentage:     percentage,
-	})
-	uassert.ErrorIs(t, err, ErrInvalidTokenId)
-
-	// Test case: Invalid payment address
-	aerr := dummy.SetTokenRoyalty(addr1, TokenID("4"), RoyaltyInfo{
-		PaymentAddress: address("###"), // invalid address
-		Percentage:     percentage,
-	})
-	uassert.ErrorIs(t, aerr, ErrInvalidRoyaltyPaymentAddress)
-
-	// Test case: Invalid percentage
-	perr := dummy.SetTokenRoyalty(addr1, TokenID("5"), RoyaltyInfo{
-		PaymentAddress: paymentAddress,
-		Percentage:     int64(200), // over maxRoyaltyPercentage
-	})
-	uassert.ErrorIs(t, perr, ErrInvalidRoyaltyPercentage)
-
-	// addr2 is not the owner.
-	cerr := dummy.SetTokenRoyalty(addr2, TokenID("1"), RoyaltyInfo{
-		PaymentAddress: paymentAddress,
-		Percentage:     percentage,
-	})
-	uassert.ErrorIs(t, cerr, ErrCallerIsNotOwner)
-
-	dummyPaymentAddress, dummyRoyaltyAmount, rerr := dummy.RoyaltyInfo(TokenID("1"), salePrice)
-	uassert.NoError(t, rerr, "RoyaltyInfo error")
-	uassert.Equal(t, paymentAddress, dummyPaymentAddress)
-	uassert.Equal(t, expectRoyaltyAmount, dummyRoyaltyAmount)
+	uassert.NoError(t, ledger.Burn("1"))
+	_, _, err = nft.RoyaltyInfo("1", 1000)
+	uassert.ErrorIs(t, err, ErrTokenNotFound)
 }

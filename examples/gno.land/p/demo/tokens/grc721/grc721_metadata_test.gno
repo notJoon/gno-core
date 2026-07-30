@@ -7,97 +7,40 @@ import (
 	"gno.land/p/nt/uassert/v0"
 )
 
-func newDummyMetadataNFT(_ int, rlm realm) *metadataNFT {
-	var nft *metadataNFT
+func newTestMetadataNFT(cur realm) (*MetadataNFT, *MetadataLedger) {
+	var nft *MetadataNFT
+	var ledger *MetadataLedger
 	func(cur realm) {
-		nft = NewNFTWithMetadata(0, cur, dummyNFTName, dummyNFTSymbol)
-	}(cross(rlm))
-	return nft
+		nft, ledger = NewNFTWithMetadata(0, cur, dummyNFTName, dummyNFTSymbol)
+	}(cross(cur))
+	return nft, ledger
 }
 
-func TestSetMetadata(cur realm, t *testing.T) {
-	// Create a new dummy NFT with metadata
-	dummy := newDummyMetadataNFT(0, cur)
-	if dummy == nil {
-		t.Errorf("should not be nil")
+func TestMetadataLifecycleAndCopies(cur realm, t *testing.T) {
+	nft, ledger := newTestMetadataNFT(cur)
+	owner := testutils.TestAddress("owner")
+
+	uassert.NoError(t, ledger.Mint(owner, "1"))
+	_, err := nft.TokenMetadata("1")
+	uassert.ErrorIs(t, err, ErrMetadataNotSet)
+
+	input := Metadata{
+		Name:       "one",
+		Attributes: []Trait{{TraitType: "rank", Value: "first"}},
 	}
+	uassert.NoError(t, ledger.SetTokenMetadata(owner, "1", input))
+	input.Attributes[0].Value = "changed input"
 
-	// Define addresses for testing purposes
-	addr1 := testutils.TestAddress("alice")
-	addr2 := testutils.TestAddress("bob")
+	first, err := nft.TokenMetadata("1")
+	uassert.NoError(t, err)
+	uassert.Equal(t, "first", first.Attributes[0].Value)
+	first.Attributes[0].Value = "changed output"
 
-	// Define metadata attributes
-	name := "test"
-	description := "test"
-	image := "test"
-	imageData := "test"
-	externalURL := "test"
-	attributes := []Trait{}
-	backgroundColor := "test"
-	animationURL := "test"
-	youtubeURL := "test"
+	second, err := nft.TokenMetadata("1")
+	uassert.NoError(t, err)
+	uassert.Equal(t, "first", second.Attributes[0].Value)
 
-	// Mint a new token for addr1
-	dummy.mint(addr1, TokenID("1"))
-
-	// Set metadata for token 1 as its owner (addr1)
-	derr := dummy.SetTokenMetadata(addr1, TokenID("1"), Metadata{
-		Name:            name,
-		Description:     description,
-		Image:           image,
-		ImageData:       imageData,
-		ExternalURL:     externalURL,
-		Attributes:      attributes,
-		BackgroundColor: backgroundColor,
-		AnimationURL:    animationURL,
-		YoutubeURL:      youtubeURL,
-	})
-
-	// Check if there was an error setting metadata
-	uassert.NoError(t, derr, "Should not result in error")
-
-	// Test case: invalid token ID. Setting metadata for a non-existent token fails.
-	err := dummy.SetTokenMetadata(addr1, TokenID("3"), Metadata{
-		Name:            name,
-		Description:     description,
-		Image:           image,
-		ImageData:       imageData,
-		ExternalURL:     externalURL,
-		Attributes:      attributes,
-		BackgroundColor: backgroundColor,
-		AnimationURL:    animationURL,
-		YoutubeURL:      youtubeURL,
-	})
-
-	uassert.ErrorIs(t, err, ErrInvalidTokenId)
-
-	// Test case: caller is not the owner. Setting metadata from a non-owner (addr2) fails.
-	cerr := dummy.SetTokenMetadata(addr2, TokenID("1"), Metadata{
-		Name:            name,
-		Description:     description,
-		Image:           image,
-		ImageData:       imageData,
-		ExternalURL:     externalURL,
-		Attributes:      attributes,
-		BackgroundColor: backgroundColor,
-		AnimationURL:    animationURL,
-		YoutubeURL:      youtubeURL,
-	})
-
-	uassert.ErrorIs(t, cerr, ErrCallerIsNotOwner)
-
-	// Retrieve metadata for token 1
-	dummyMetadata, err := dummy.TokenMetadata(TokenID("1"))
-	uassert.NoError(t, err, "Metadata error")
-
-	// Check if metadata attributes match expected values
-	uassert.Equal(t, image, dummyMetadata.Image)
-	uassert.Equal(t, imageData, dummyMetadata.ImageData)
-	uassert.Equal(t, externalURL, dummyMetadata.ExternalURL)
-	uassert.Equal(t, description, dummyMetadata.Description)
-	uassert.Equal(t, name, dummyMetadata.Name)
-	uassert.Equal(t, len(attributes), len(dummyMetadata.Attributes))
-	uassert.Equal(t, backgroundColor, dummyMetadata.BackgroundColor)
-	uassert.Equal(t, animationURL, dummyMetadata.AnimationURL)
-	uassert.Equal(t, youtubeURL, dummyMetadata.YoutubeURL)
+	uassert.NoError(t, ledger.Burn("1"))
+	_, err = nft.TokenMetadata("1")
+	uassert.ErrorIs(t, err, ErrTokenNotFound)
 }
