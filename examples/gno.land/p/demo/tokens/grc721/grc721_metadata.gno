@@ -20,8 +20,8 @@ type MetadataLedger struct {
 
 var _ IGRC721MetadataOnchain = (*MetadataNFT)(nil)
 
-func NewNFTWithMetadata(_ int, rlm realm, name, symbol string) (*MetadataNFT, *MetadataLedger) {
-	nft, ledger := NewBasicNFT(0, rlm, name, symbol)
+func NewNFTWithMetadata(name, symbol string, rlm realm) (*MetadataNFT, *MetadataLedger) {
+	nft, ledger := NewBasicNFT(name, symbol, rlm)
 	public := &MetadataNFT{
 		NFT:      nft,
 		metadata: avl.NewTree(),

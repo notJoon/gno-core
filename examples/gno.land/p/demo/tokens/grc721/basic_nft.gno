@@ -33,7 +33,7 @@ type PrivateLedger struct {
 	activeTokens      int64
 }
 
-func NewBasicNFT(_ int, rlm realm, name, symbol string) (*NFT, *PrivateLedger) {
+func NewBasicNFT(name, symbol string, rlm realm) (*NFT, *PrivateLedger) {
 	if !rlm.IsCurrent() {
 		panic(ErrSpoofedRealm)
 	}

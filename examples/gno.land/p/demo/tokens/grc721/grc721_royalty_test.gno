@@ -12,7 +12,7 @@ func newTestRoyaltyNFT(cur realm) (*RoyaltyNFT, *RoyaltyLedger) {
 	var nft *RoyaltyNFT
 	var ledger *RoyaltyLedger
 	func(cur realm) {
-		nft, ledger = NewNFTWithRoyalty(0, cur, dummyNFTName, dummyNFTSymbol)
+		nft, ledger = NewNFTWithRoyalty(dummyNFTName, dummyNFTSymbol, cur)
 	}(cross(cur))
 	return nft, ledger
 }

@@ -128,7 +128,7 @@ var (
 )
 
 func init(cur realm) {
-	public, private := grc721.NewNFTWithRoyalty(0, cur, "Victim NFT", "VNFT")
+	public, private := grc721.NewNFTWithRoyalty("Victim NFT", "VNFT", cur)
 	reader = public
 	ledger = private
 	if err := ledger.Mint(owner, tokenID); err != nil {
@@ -279,7 +279,7 @@ func SpoofRealm(cur realm) {
 	if !cur.IsCurrent() {
 		panic(grc721.ErrSpoofedRealm)
 	}
-	grc721.NewBasicNFT(0, cur.Previous(), "Fake", "FAKE")
+	grc721.NewBasicNFT("Fake", "FAKE", cur.Previous())
 }
 
 func RegisterNil(cur realm) {

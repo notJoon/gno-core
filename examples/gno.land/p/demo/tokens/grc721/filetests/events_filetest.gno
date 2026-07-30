@@ -13,7 +13,7 @@ func main(cur realm) {
 	approved := chain.PackageAddress("approved")
 	operator := chain.PackageAddress("operator")
 	receiver := chain.PackageAddress("receiver")
-	_, ledger := grc721.NewNFTWithRoyalty(0, cur, "Events", "EVT")
+	_, ledger := grc721.NewNFTWithRoyalty("Events", "EVT", cur)
 
 	must(ledger.Mint(owner, "1"))
 	must(ledger.SetTokenRoyalty("1", grc721.RoyaltyInfo{PaymentAddress: owner, BPS: 100}))

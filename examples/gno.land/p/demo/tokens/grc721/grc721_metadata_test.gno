@@ -11,7 +11,7 @@ func newTestMetadataNFT(cur realm) (*MetadataNFT, *MetadataLedger) {
 	var nft *MetadataNFT
 	var ledger *MetadataLedger
 	func(cur realm) {
-		nft, ledger = NewNFTWithMetadata(0, cur, dummyNFTName, dummyNFTSymbol)
+		nft, ledger = NewNFTWithMetadata(dummyNFTName, dummyNFTSymbol, cur)
 	}(cross(cur))
 	return nft, ledger
 }

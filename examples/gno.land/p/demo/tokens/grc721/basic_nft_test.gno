@@ -17,20 +17,20 @@ func newTestNFT(cur realm) (*NFT, *PrivateLedger) {
 	var nft *NFT
 	var ledger *PrivateLedger
 	func(cur realm) {
-		nft, ledger = NewBasicNFT(0, cur, dummyNFTName, dummyNFTSymbol)
+		nft, ledger = NewBasicNFT(dummyNFTName, dummyNFTSymbol, cur)
 	}(cross(cur))
 	return nft, ledger
 }
 
 func TestNewBasicNFTValidation(cur realm, t *testing.T) {
 	uassert.AbortsContains(t, cur, "invalid token name", func(cur realm) {
-		NewBasicNFT(0, cur, "", "OK")
+		NewBasicNFT("", "OK", cur)
 	})
 	uassert.AbortsContains(t, cur, "invalid token symbol", func(cur realm) {
-		NewBasicNFT(0, cur, "Name", "BAD.SYMBOL")
+		NewBasicNFT("Name", "BAD.SYMBOL", cur)
 	})
 	uassert.NotAborts(t, cur, func(cur realm) {
-		NewBasicNFT(0, cur, strings.Repeat("a", MaxNameLen), strings.Repeat("A", MaxSymbolLen))
+		NewBasicNFT(strings.Repeat("a", MaxNameLen), strings.Repeat("A", MaxSymbolLen), cur)
 	})
 }
 

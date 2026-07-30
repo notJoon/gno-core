@@ -18,8 +18,8 @@ type RoyaltyLedger struct {
 
 var _ IGRC2981 = (*RoyaltyNFT)(nil)
 
-func NewNFTWithRoyalty(_ int, rlm realm, name, symbol string) (*RoyaltyNFT, *RoyaltyLedger) {
-	nft, ledger := NewNFTWithMetadata(0, rlm, name, symbol)
+func NewNFTWithRoyalty(name, symbol string, rlm realm) (*RoyaltyNFT, *RoyaltyLedger) {
+	nft, ledger := NewNFTWithMetadata(name, symbol, rlm)
 	public := &RoyaltyNFT{
 		MetadataNFT: nft,
 		royalties:   avl.NewTree(),
