@@ -1,0 +1,188 @@
+loadpkg gno.land/p/demo/tokens/grc721
+loadpkg gno.land/r/test/grc721registry $WORK/registry
+loadpkg gno.land/r/test/grc721victim $WORK/victim
+loadpkg gno.land/r/test/grc721attacker $WORK/attacker
+
+gnoland start
+
+gnokey query vm/qeval --data 'gno.land/r/test/grc721victim.Snapshot()'
+stdout 'g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5:original'
+
+gnokey maketx call -pkgpath gno.land/r/test/grc721attacker -func AssertSafe -gas-fee 5000001ugnot -gas-wanted 50_000_000 -chainid=tendermint_test test1
+stdout 'OK!'
+
+! gnokey maketx call -pkgpath gno.land/r/test/grc721attacker -func AttackMetadata -gas-fee 5000001ugnot -gas-wanted 50_000_000 -chainid=tendermint_test test1
+stderr 'cannot directly modify readonly tainted object'
+
+! gnokey maketx call -pkgpath gno.land/r/test/grc721attacker -func SpoofRealm -gas-fee 5000001ugnot -gas-wanted 50_000_000 -chainid=tendermint_test test1
+stderr 'rlm does not match the current crossing frame'
+
+! gnokey maketx call -pkgpath gno.land/r/test/grc721victim -func RegisterAgain -gas-fee 5000001ugnot -gas-wanted 50_000_000 -chainid=tendermint_test test1
+stderr 'collection already registered'
+
+gnokey query vm/qeval --data 'gno.land/r/test/grc721victim.Snapshot()'
+stdout 'g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5:original'
+
+-- registry/gnomod.toml --
+module = "gno.land/r/test/grc721registry"
+gno = "0.9"
+
+-- registry/registry.gno --
+package grc721registry
+
+import (
+	"gno.land/p/demo/tokens/grc721"
+	"gno.land/p/nt/avl/v0"
+)
+
+var readers = avl.NewTree()
+
+func Register(cur realm, reader grc721.IGRC721Reader) {
+	if !cur.IsCurrent() {
+		panic(grc721.ErrSpoofedRealm)
+	}
+	realmPath := cur.Previous().PkgPath()
+	if realmPath == "" {
+		panic("collection must be registered by a realm")
+	}
+	key := realmPath + "." + reader.Symbol()
+	if reader.ID() != key {
+		panic("collection ID does not match caller")
+	}
+	if readers.Has(key) {
+		panic("collection already registered")
+	}
+	readers.Set(key, reader)
+}
+
+func Get(key string) grc721.IGRC721Reader {
+	value := readers.Get(key)
+	if value == nil {
+		panic("collection not found")
+	}
+	return value.(grc721.IGRC721Reader)
+}
+
+-- victim/gnomod.toml --
+module = "gno.land/r/test/grc721victim"
+gno = "0.9"
+
+-- victim/victim.gno --
+package grc721victim
+
+import (
+	"gno.land/p/demo/tokens/grc721"
+	"gno.land/r/test/grc721registry"
+)
+
+const tokenID = grc721.TokenID("one")
+
+var (
+	owner  address = "g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"
+	reader grc721.IGRC721Reader
+	ledger *grc721.RoyaltyLedger
+)
+
+func init(cur realm) {
+	public, private := grc721.NewNFTWithRoyalty(0, cur, "Victim NFT", "VNFT")
+	reader = public
+	ledger = private
+	if err := ledger.Mint(owner, tokenID); err != nil {
+		panic(err)
+	}
+	if err := ledger.SetTokenMetadata(owner, tokenID, grc721.Metadata{
+		Name:       "victim",
+		Attributes: []grc721.Trait{{TraitType: "status", Value: "original"}},
+	}); err != nil {
+		panic(err)
+	}
+	grc721registry.Register(cross(cur), reader)
+}
+
+func Reader() grc721.IGRC721Reader {
+	return reader
+}
+
+func RegisterAgain(cur realm) {
+	if !cur.IsCurrent() {
+		panic(grc721.ErrSpoofedRealm)
+	}
+	grc721registry.Register(cross(cur), reader)
+}
+
+func Snapshot() string {
+	tokenOwner, err := reader.OwnerOf(tokenID)
+	if err != nil {
+		panic(err)
+	}
+	metadata, err := reader.(grc721.IGRC721MetadataOnchain).TokenMetadata(tokenID)
+	if err != nil {
+		panic(err)
+	}
+	return tokenOwner.String() + ":" + metadata.Attributes[0].Value
+}
+
+-- attacker/gnomod.toml --
+module = "gno.land/r/test/grc721attacker"
+gno = "0.9"
+
+-- attacker/attacker.gno --
+package grc721attacker
+
+import (
+	"gno.land/p/demo/tokens/grc721"
+	"gno.land/r/test/grc721registry"
+	"gno.land/r/test/grc721victim"
+)
+
+type mutator interface {
+	Mint(to address, tid grc721.TokenID) error
+}
+
+func AssertSafe(cur realm) {
+	if !cur.IsCurrent() {
+		panic(grc721.ErrSpoofedRealm)
+	}
+
+	direct := grc721victim.Reader()
+	if _, ok := direct.(mutator); ok {
+		panic("direct reader exposes mutation")
+	}
+
+	concrete, ok := direct.(*grc721.RoyaltyNFT)
+	if !ok {
+		panic("concrete public type was lost")
+	}
+	_ = concrete
+
+	registered := grc721registry.Get(direct.ID())
+	if _, ok := registered.(mutator); ok {
+		panic("registered reader exposes mutation")
+	}
+	if _, ok := registered.(grc721.IGRC721MetadataOnchain); !ok {
+		panic("registered reader lost metadata")
+	}
+	if _, ok := registered.(grc721.IGRC2981); !ok {
+		panic("registered reader lost royalty")
+	}
+}
+
+func AttackMetadata(cur realm) {
+	if !cur.IsCurrent() {
+		panic(grc721.ErrSpoofedRealm)
+	}
+	registered := grc721registry.Get(grc721victim.Reader().ID())
+	metadataReader := registered.(grc721.IGRC721MetadataOnchain)
+	metadata, err := metadataReader.TokenMetadata("one")
+	if err != nil {
+		panic(err)
+	}
+	metadata.Attributes[0].Value = "attacked"
+}
+
+func SpoofRealm(cur realm) {
+	if !cur.IsCurrent() {
+		panic(grc721.ErrSpoofedRealm)
+	}
+	grc721.NewBasicNFT(0, cur.Previous(), "Fake", "FAKE")
+}
