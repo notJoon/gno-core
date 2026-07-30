@@ -20,6 +20,12 @@ stderr 'rlm does not match the current crossing frame'
 ! gnokey maketx call -pkgpath gno.land/r/test/grc721victim -func RegisterAgain -gas-fee 5000001ugnot -gas-wanted 50_000_000 -chainid=tendermint_test test1
 stderr 'collection already registered'
 
+! gnokey maketx call -pkgpath gno.land/r/test/grc721attacker -func RegisterNil -gas-fee 5000001ugnot -gas-wanted 50_000_000 -chainid=tendermint_test test1
+stderr 'nil collection reader'
+
+! gnokey maketx call -pkgpath gno.land/r/test/grc721attacker -func RegisterInvalid -gas-fee 5000001ugnot -gas-wanted 50_000_000 -chainid=tendermint_test test1
+stderr 'invalid collection name'
+
 gnokey query vm/qeval --data 'gno.land/r/test/grc721victim.Snapshot()'
 stdout 'g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5:original'
 
@@ -45,7 +51,17 @@ func Register(cur realm, reader grc721.IGRC721Reader) {
 	if realmPath == "" {
 		panic("collection must be registered by a realm")
 	}
-	key := realmPath + "." + reader.Symbol()
+	if reader == nil {
+		panic("nil collection reader")
+	}
+	if !validName(reader.Name()) {
+		panic("invalid collection name")
+	}
+	symbol := reader.Symbol()
+	if !validSymbol(symbol) {
+		panic("invalid collection symbol")
+	}
+	key := realmPath + "." + symbol
 	if reader.ID() != key {
 		panic("collection ID does not match caller")
 	}
@@ -61,6 +77,34 @@ func Get(key string) grc721.IGRC721Reader {
 		panic("collection not found")
 	}
 	return value.(grc721.IGRC721Reader)
+}
+
+func validName(name string) bool {
+	if name == "" || len(name) > grc721.MaxNameLen {
+		return false
+	}
+	for _, c := range name {
+		if c < 0x20 || c == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func validSymbol(symbol string) bool {
+	if symbol == "" || len(symbol) > grc721.MaxSymbolLen {
+		return false
+	}
+	for _, c := range symbol {
+		if !isAlnum(c) && c != '_' && c != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func isAlnum(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
 -- victim/gnomod.toml --
@@ -90,7 +134,7 @@ func init(cur realm) {
 	if err := ledger.Mint(owner, tokenID); err != nil {
 		panic(err)
 	}
-	if err := ledger.SetTokenMetadata(owner, tokenID, grc721.Metadata{
+	if err := ledger.SetTokenMetadata(tokenID, grc721.Metadata{
 		Name:       "victim",
 		Attributes: []grc721.Trait{{TraitType: "status", Value: "original"}},
 	}); err != nil {
@@ -135,8 +179,59 @@ import (
 	"gno.land/r/test/grc721victim"
 )
 
-type mutator interface {
+type mintMutator interface {
 	Mint(to address, tid grc721.TokenID) error
+}
+
+type burnMutator interface {
+	Burn(tid grc721.TokenID) error
+}
+
+type approveMutator interface {
+	Approve(caller, to address, tid grc721.TokenID) error
+}
+
+type approvalForAllMutator interface {
+	SetApprovalForAll(caller, operator address, approved bool) error
+}
+
+type transferMutator interface {
+	TransferFrom(caller, from, to address, tid grc721.TokenID) error
+}
+
+type tokenURIMutator interface {
+	SetTokenURI(tid grc721.TokenID, uri grc721.TokenURI) error
+}
+
+type metadataMutator interface {
+	SetTokenMetadata(tid grc721.TokenID, metadata grc721.Metadata) error
+}
+
+type royaltyMutator interface {
+	SetTokenRoyalty(tid grc721.TokenID, royalty grc721.RoyaltyInfo) error
+}
+
+type invalidReader struct{}
+
+func (invalidReader) ID() string { return "gno.land/r/test/grc721attacker.BAD" }
+func (invalidReader) Name() string { return "" }
+func (invalidReader) Symbol() string { return "BAD" }
+func (invalidReader) TokenCount() int64 { return 0 }
+func (invalidReader) BalanceOf(address) (int64, error) { return 0, nil }
+func (invalidReader) OwnerOf(grc721.TokenID) (address, error) { return "", nil }
+func (invalidReader) GetApproved(grc721.TokenID) (address, error) { return "", nil }
+func (invalidReader) IsApprovedForAll(address, address) bool { return false }
+
+func hasMutator(reader grc721.IGRC721Reader) bool {
+	_, mint := reader.(mintMutator)
+	_, burn := reader.(burnMutator)
+	_, approve := reader.(approveMutator)
+	_, approvalForAll := reader.(approvalForAllMutator)
+	_, transfer := reader.(transferMutator)
+	_, tokenURI := reader.(tokenURIMutator)
+	_, metadata := reader.(metadataMutator)
+	_, royalty := reader.(royaltyMutator)
+	return mint || burn || approve || approvalForAll || transfer || tokenURI || metadata || royalty
 }
 
 func AssertSafe(cur realm) {
@@ -145,7 +240,7 @@ func AssertSafe(cur realm) {
 	}
 
 	direct := grc721victim.Reader()
-	if _, ok := direct.(mutator); ok {
+	if hasMutator(direct) {
 		panic("direct reader exposes mutation")
 	}
 
@@ -156,7 +251,7 @@ func AssertSafe(cur realm) {
 	_ = concrete
 
 	registered := grc721registry.Get(direct.ID())
-	if _, ok := registered.(mutator); ok {
+	if hasMutator(registered) {
 		panic("registered reader exposes mutation")
 	}
 	if _, ok := registered.(grc721.IGRC721MetadataOnchain); !ok {
@@ -185,4 +280,18 @@ func SpoofRealm(cur realm) {
 		panic(grc721.ErrSpoofedRealm)
 	}
 	grc721.NewBasicNFT(0, cur.Previous(), "Fake", "FAKE")
+}
+
+func RegisterNil(cur realm) {
+	if !cur.IsCurrent() {
+		panic(grc721.ErrSpoofedRealm)
+	}
+	grc721registry.Register(cross(cur), nil)
+}
+
+func RegisterInvalid(cur realm) {
+	if !cur.IsCurrent() {
+		panic(grc721.ErrSpoofedRealm)
+	}
+	grc721registry.Register(cross(cur), invalidReader{})
 }
