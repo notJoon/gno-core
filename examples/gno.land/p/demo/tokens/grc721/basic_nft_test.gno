@@ -117,6 +117,11 @@ func TestApprovalAndTransfer(cur realm, t *testing.T) {
 	_, err = nft.GetApproved("3")
 	uassert.ErrorIs(t, err, ErrTokenNotFound)
 	uassert.True(t, nft.IsApprovedForAll(owner, operator))
+	ownerBalance, err := nft.BalanceOf(owner)
+	uassert.NoError(t, err)
+	receiverBalance, err := nft.BalanceOf(receiver)
+	uassert.NoError(t, err)
+	uassert.Equal(t, nft.TokenCount(), ownerBalance+receiverBalance)
 
 	uassert.ErrorIs(t, ledger.SetApprovalForAll(owner, owner, true), ErrSelfApproval)
 	uassert.ErrorIs(t, ledger.TransferFrom(receiver, receiver, receiver, "1"), ErrCannotTransferToSelf)
