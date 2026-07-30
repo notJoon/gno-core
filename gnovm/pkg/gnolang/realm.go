@@ -209,9 +209,12 @@ type Realm struct {
 // single record-save per foreign realm cover all touched objects
 // (regardless of which route(s) touched it).
 func (rlm *Realm) touchForeignRealm(store Store, pid PkgID) *Realm {
-	if rlm.touchedForeignRealms == nil {
-		rlm.touchedForeignRealms = make(map[PkgID]*Realm, 1)
-	}
+	fr := rlm.lookupForeignRealm(store, pid)
+	rlm.cacheForeignRealm(pid, fr)
+	return fr
+}
+
+func (rlm *Realm) lookupForeignRealm(store Store, pid PkgID) *Realm {
 	if fr, ok := rlm.touchedForeignRealms[pid]; ok {
 		return fr
 	}
@@ -221,8 +224,14 @@ func (rlm *Realm) touchForeignRealm(store Store, pid PkgID) *Realm {
 			"cannot resolve foreign realm %s for cross-realm finalize",
 			pid))
 	}
-	rlm.touchedForeignRealms[pid] = fr
 	return fr
+}
+
+func (rlm *Realm) cacheForeignRealm(pid PkgID, fr *Realm) {
+	if rlm.touchedForeignRealms == nil {
+		rlm.touchedForeignRealms = make(map[PkgID]*Realm, 1)
+	}
+	rlm.touchedForeignRealms[pid] = fr
 }
 
 // Creates a blank new realm with counter 0.
@@ -2024,19 +2033,8 @@ func (rlm *Realm) assignNewObjectID(store Store, oo Object) ObjectID {
 	}
 
 	targetRlm := rlm
-	cacheForeign := false
 	if !adopt && oid.PkgID != rlm.ID {
-		var ok bool
-		targetRlm, ok = rlm.touchedForeignRealms[oid.PkgID]
-		if !ok {
-			targetRlm = store.GetRealmByID(oid.PkgID)
-			if targetRlm == nil {
-				panic(fmt.Sprintf(
-					"cannot resolve foreign realm %s for cross-realm finalize",
-					oid.PkgID))
-			}
-			cacheForeign = true
-		}
+		targetRlm = rlm.lookupForeignRealm(store, oid.PkgID)
 	}
 	if targetRlm.Time == math.MaxUint64 {
 		panic("realm object ID exhausted")
@@ -2044,11 +2042,8 @@ func (rlm *Realm) assignNewObjectID(store Store, oo Object) ObjectID {
 
 	if adopt {
 		oo.SetPkgID(rlm.ID)
-	} else if cacheForeign {
-		if rlm.touchedForeignRealms == nil {
-			rlm.touchedForeignRealms = make(map[PkgID]*Realm, 1)
-		}
-		rlm.touchedForeignRealms[oid.PkgID] = targetRlm
+	} else if oid.PkgID != rlm.ID {
+		rlm.cacheForeignRealm(oid.PkgID, targetRlm)
 	}
 	targetRlm.Time++
 	oo.SetNewTime(targetRlm.Time)
