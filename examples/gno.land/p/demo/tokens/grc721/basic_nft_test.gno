@@ -23,6 +23,12 @@ func newTestNFT(cur realm) (*NFT, *PrivateLedger) {
 }
 
 func TestNewBasicNFTValidation(cur realm, t *testing.T) {
+	uassert.PanicsContains(t, cur, "method selector on nil interface", func() {
+		NewBasicNFT("Name", "OK", nil)
+	})
+	uassert.AbortsContains(t, cur, "rlm does not match the current crossing frame", func(cur realm) {
+		NewBasicNFT("Name", "OK", cur.Previous())
+	})
 	uassert.AbortsContains(t, cur, "invalid token name", func(cur realm) {
 		NewBasicNFT("", "OK", cur)
 	})
@@ -113,10 +119,11 @@ func TestApprovalAndTransfer(cur realm, t *testing.T) {
 	uassert.Equal(t, address(""), addr)
 
 	uassert.NoError(t, ledger.Approve(receiver, approved, "3"))
+	uassert.NoError(t, ledger.SetApprovalForAll(receiver, operator, true))
 	uassert.NoError(t, ledger.Burn("3"))
 	_, err = nft.GetApproved("3")
 	uassert.ErrorIs(t, err, ErrTokenNotFound)
-	uassert.True(t, nft.IsApprovedForAll(owner, operator))
+	uassert.True(t, nft.IsApprovedForAll(receiver, operator))
 	ownerBalance, err := nft.BalanceOf(owner)
 	uassert.NoError(t, err)
 	receiverBalance, err := nft.BalanceOf(receiver)

@@ -41,6 +41,18 @@ stdout '\[{\"type\":\"Burn\",\"attrs\":\[{\"key\":\"token\",\"value\":\"gno.land
 stderr 'token id already used'
 stderr 'events:\[\]'
 
+! gnokey maketx call -pkgpath gno.land/r/foo721 -func Approve -args g1us8428u2a5satrlxzagqqa5m6vmuze025anjlj -args 1 -gas-fee 890001ugnot -gas-wanted 8_900_000 -chainid=tendermint_test test1
+stderr 'token not found'
+stderr 'events:\[\]'
+
+! gnokey maketx call -pkgpath gno.land/r/foo721 -func SetApprovalForAll -args g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5 -args true -gas-fee 880001ugnot -gas-wanted 8_800_000 -chainid=tendermint_test test1
+stderr 'cannot approve self as operator'
+stderr 'events:\[\]'
+
+! gnokey maketx call -pkgpath gno.land/r/foo721 -func TransferFrom -args g1us8428u2a5satrlxzagqqa5m6vmuze025anjlj -args g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5 -args 1 -gas-fee 990001ugnot -gas-wanted 9_900_000 -chainid=tendermint_test test1
+stderr 'token not found'
+stderr 'events:\[\]'
+
 -- foo721/foo721.gno --
 package foo721
 

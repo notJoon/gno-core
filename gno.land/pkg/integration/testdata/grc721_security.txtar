@@ -254,6 +254,9 @@ func AssertSafe(cur realm) {
 	if hasMutator(registered) {
 		panic("registered reader exposes mutation")
 	}
+	if _, ok := registered.(grc721.IGRC721TokenURI); !ok {
+		panic("registered reader lost token URI")
+	}
 	if _, ok := registered.(grc721.IGRC721MetadataOnchain); !ok {
 		panic("registered reader lost metadata")
 	}
