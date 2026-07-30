@@ -1,12 +1,61 @@
 package grc20factory
 
 import (
+	"strings"
 	"testing"
 
+	"gno.land/p/demo/tokens/grc20"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/p/nt/uassert/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
+
+func callNewToken(cur realm, name, symbol string, decimals int) (token *grc20.Token, got any) {
+	defer func() {
+		if err := recover(); err != nil {
+			got = err
+		}
+	}()
+	token, _ = grc20.NewToken(name, symbol, decimals, cur)
+	return
+}
+
+func TestNewTokenThroughWrapper(cur realm, t *testing.T) {
+	tests := []struct {
+		name     string
+		token    string
+		symbol   string
+		decimals int
+		want     any
+	}{
+		{name: "valid", token: "Same", symbol: "DUP", decimals: 6},
+		{name: "duplicate symbol gets unique ID", token: "Same", symbol: "DUP", decimals: 6},
+		{name: "UTF-8 name", token: "Доллар", symbol: "RUB", decimals: 2},
+		{name: "maximum metadata", token: strings.Repeat("a", grc20.MaxNameLen), symbol: strings.Repeat("A", grc20.MaxSymbolLen), decimals: grc20.MaxDecimals},
+		{name: "empty name", symbol: "OK", decimals: 4, want: grc20.ErrInvalidName},
+		{name: "invalid symbol", token: "Name", symbol: "BA.D", decimals: 4, want: grc20.ErrInvalidSymbol},
+		{name: "negative decimals", token: "Name", symbol: "OK", decimals: -1, want: grc20.ErrInvalidDecimals},
+		{name: "decimals over cap", token: "Name", symbol: "OK", decimals: grc20.MaxDecimals + 1, want: grc20.ErrInvalidDecimals},
+	}
+
+	ids := make(map[string]bool)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			token, got := callNewToken(cur, tc.token, tc.symbol, tc.decimals)
+			if got != tc.want {
+				t.Fatalf("expected panic %v, got %v", tc.want, got)
+			}
+			if tc.want != nil {
+				return
+			}
+
+			uassert.Equal(t, "gno.land/r/demo/defi/grc20factory", token.OriginRealm())
+			uassert.True(t, strings.HasPrefix(token.ID(), token.OriginRealm()+"@"))
+			uassert.False(t, ids[token.ID()], "token ID must be unique")
+			ids[token.ID()] = true
+		})
+	}
+}
 
 func TestReadOnlyPublicMethods(cur realm, t *testing.T) {
 	admin := testutils.TestAddress("admin")
